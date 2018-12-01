@@ -1,8 +1,13 @@
 import sys
 from pathlib import Path
-from FileParsers.filereaders import verify_files
 
-files = None
+from App.ObjectBuilders import build_trips
+from FileParsers.filereaders import verify_files, page_number_remover, create_trips_as_dict, number_of_trips_in_pbs_file
+from data.database import Database
+
+files = []
+Database.initialise(database="orgutrip", user="postgres", password="0933", host="localhost")
+
 
 class Menu:
     """Display a menu and respond to choices when run"""
@@ -21,7 +26,8 @@ class Menu:
         print('''
         Orgutrip Menu
 
-        1. Leer los archivos con los trips.
+        1. Elejir los archivos con los trips.
+        2. Leer cada archivo con los trips y generar los objetos.
         2. Trabajar con los trips que no pudieron ser creados.
         3. Buscar un trip en especìfico.
         4. Leer los archivos con las reservas.
@@ -50,15 +56,26 @@ class Menu:
                       "201810 - PBS vuelos EJE.txt"]
         files = verify_files(data_folder, file_names)
 
-        # import re
-        # with open(file_to_open, 'r') as f:
-        #     content = f.read()
-        #     content_new = re.sub('=+\d+=+', '', content, flags=re.M)
-        # with open(file_to_open, 'w') as f:
-        #     f.write(content_new)
-        
     def parse_trips_from_files(self):
-        print(files)
+        """Will read each pbs trip file and turn it into usable dictionaries"""
+        
+        unstored_trips = list()
+        for file in files:
+            # 1. Read in and clean the txt.file
+            print("\n Parsing file : {}".format(file))
+            position = input("Is this a PBS file for EJE or SOB? ").upper()
+            cleaned_content = page_number_remover(file)
+            total_trips = number_of_trips_in_pbs_file(cleaned_content)
+            trips_as_dict = create_trips_as_dict(trips_as_strings=cleaned_content)
+            if total_trips != len(trips_as_dict):
+                print("Warning! {} trips should be processed but only {} were found".format(
+                    total_trips, len(trips_as_dict)
+                ))
+            pending_trips = build_trips(trips_as_dict, position, postpone=True)
+        #         unstored_trips.extend(pending_trips)
+        # outfile = open(pbs_path + pickled_unsaved_trips_file, 'wb')
+        # pickle.dump(unstored_trips, outfile)
+        # outfile.close()
 
     def figure_out_unsaved_trips(self):
         pass
