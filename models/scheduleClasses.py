@@ -13,7 +13,7 @@ class Airport(object):
     """
     _airports = dict()
 
-    def __new__(cls, iata_code: str, *args, **kwargs):
+    def __new__(cls, iata_code: str, timezone: str = None, *args, **kwargs):
         airport = cls._airports.get(iata_code)
         if not airport:
             airport = super().__new__(cls)
@@ -54,18 +54,17 @@ class Airport(object):
     #                        'WHERE iata_code = %s', (continent, tz_city,
     #                                                 self.viaticum, self.iata_code))
     #
-    # @classmethod
-    # def load_from_db_by_iata_code(cls, iata_code):
-    #     airport = cls._airports.get(iata_code)
-    #     if not airport:
-    #         with CursorFromConnectionPool() as cursor:
-    #             cursor.execute('SELECT * FROM airports WHERE iata_code=%s;', (iata_code,))
-    #             airport_data = cursor.fetchone()
-    #             if airport_data:
-    #                 timezone = airport_data[1] + '/' + airport_data[2]
-    #                 airport = cls(iata_code=airport_data[0], timezone=timezone, viaticum=airport_data[3])
-    #                 cls._airports[iata_code] = airport
-    #     return airport
+    @classmethod
+    def load_from_db_by_iata_code(cls, iata_code):
+        airport = cls._airports.get(iata_code)
+        if not airport:
+            with CursorFromConnectionPool() as cursor:
+                cursor.execute('SELECT * FROM airports WHERE iata_code=%s;', (iata_code,))
+                airport_data = cursor.fetchone()
+                timezone = airport_data[1] + '/' + airport_data[2]
+                airport = cls(iata_code=airport_data[0], timezone=timezone, viaticum=airport_data[3])
+                cls._airports[iata_code] = airport
+        return airport
 
     def __str__(self):
         return "{}".format(self.iata_code)
