@@ -961,15 +961,18 @@ class DutyDay(object):
 class Trip(object):
     """
     A trip_match is a collection of DutyDays
-
     """
 
-    def __init__(self, number: str, dated) -> None:
+    def __init__(self, number: str, check_in: datetime) -> None:
         self.number = number
         self.duty_days = []
-        self.dated = dated
+        self.check_in = check_in
         self.position = None
         self._credits = {}
+
+    @property
+    def dated(self):
+        return self.check_in.date()
 
     # @classmethod
     # def create_trip(cls):
@@ -1123,12 +1126,12 @@ class Trip(object):
         """
         with CursorFromConnectionPool() as cursor:
             cursor.execute('SELECT * FROM public.trips '
-                           'WHERE trips.number=%s AND trips.dated=%s', (self.number, self.dated))
+                           'WHERE trips.number=%s AND trips.dated=%s', (self.number, self.check_in))
             trip_data = cursor.fetchone()
 
             if not trip_data:
                 cursor.execute('INSERT INTO public.trips (number, dated, gposition) '
-                               'VALUES (%s, %s, %s);', (self.number, self.dated, self.position))
+                               'VALUES (%s, %s, %s);', (self.number, self.check_in, self.position))
         for duty_day in self.duty_days:
             duty_day.save_to_db(self)
     #
