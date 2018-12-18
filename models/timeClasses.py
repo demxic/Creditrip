@@ -1,4 +1,4 @@
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, time
 
 
 class Duration(object):
@@ -19,7 +19,7 @@ class Duration(object):
     def from_string(cls, value: str):
         hours = int(value[0:-2])
         minutes = int(value[-2:])
-        return cls(minutes=hours*60 + minutes)
+        return cls(minutes=hours * 60 + minutes)
 
     def as_timedelta(self):
         return timedelta(minutes=self.minutes)
@@ -105,17 +105,43 @@ class Duration(object):
 class DateTimeTracker(object):
     """Keeps track of datetime object in order to build Itineraries"""
 
-    def __init__(self, begin: str):
+    def __init__(self, begin: str, timezone=None):
         self.datetime_format = "%d%b%Y%H:%M"
+        self.timezone = timezone
         self.dt = datetime.strptime(begin, self.datetime_format)
+        if timezone:
+            self.dt = self.timezone.localize(self.dt)
 
     def start(self):
-        "Moves one hour ahead"
+        """Moves one hour ahead"""
         self.dt += timedelta(hours=1)
 
     def release(self):
         "Moves half an hour ahead"
         self.dt += timedelta(minutes=30)
+
+    def no_name(self, time_string: str, destination_timezone):
+        begin_as_destination_time_zone = self.dt.astimezone(destination_timezone)
+        end_hour = int(time_string[0:2])
+        end_minutes = int(time_string[2:4])
+        preliminary_end = begin_as_destination_time_zone.replace(
+            hour=end_hour, minute=end_minutes)
+        if preliminary_end < begin_as_destination_time_zone:
+            end_date = (preliminary_end + timedelta(days=1)).date()
+            end_time = time(hour=end_hour, minute=end_minutes)
+            end_datetime = datetime.combine(end_date, end_time)
+            end = destination_timezone.localize(end_datetime)
+        elif (preliminary_end.date() == begin_as_destination_time_zone.date()) and (
+                preliminary_end.time() < begin_as_destination_time_zone.time()):
+            end_date = (preliminary_end + timedelta(days=1)).date()
+            end_time = preliminary_end.time()
+            end_datetime = datetime.combine(end_date, end_time)
+            end = destination_timezone.localize(end_datetime)
+        else:
+            end = preliminary_end
+        self.dt = end
+        return end
+        # return end.astimezone(self.timezone)
 
     def forward(self, time_string: str) -> timedelta:
         """Moves HH hours and MM minutes forward in time.
@@ -142,4 +168,4 @@ class DateTimeTracker(object):
         return self.dt.date()
 
     def __str__(self):
-        return self.dt.strftime(self.datetime_format)
+        return str(self.dt)

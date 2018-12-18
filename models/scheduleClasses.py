@@ -1,6 +1,7 @@
 from datetime import timedelta, datetime
 
 import psycopg2
+import pytz
 
 from data.database import CursorFromConnectionPool
 from models.timeClasses import Duration
@@ -13,7 +14,7 @@ class Airport(object):
     """
     _airports = dict()
 
-    def __new__(cls, iata_code: str, timezone: str = None, *args, **kwargs):
+    def __new__(cls, iata_code: str, timezone=None, *args, **kwargs):
         airport = cls._airports.get(iata_code)
         if not airport:
             airport = super().__new__(cls)
@@ -21,7 +22,7 @@ class Airport(object):
 
         return airport
 
-    def __init__(self, iata_code: str, timezone: str = None, viaticum: str = None):
+    def __init__(self, iata_code: str, timezone=None, viaticum: str = None):
         """
         Represents an airport as a 3 letter code
         """
@@ -55,13 +56,13 @@ class Airport(object):
     #                                                 self.viaticum, self.iata_code))
     #
     @classmethod
-    def load_from_db_by_iata_code(cls, iata_code):
-        airport = cls._airports.get(iata_code)
+    def load_from_db_by_iata_code(cls, iata_code: str):
+        airport = cls._airports.get(iata_code.upper())
         if not airport:
             with CursorFromConnectionPool() as cursor:
                 cursor.execute('SELECT * FROM airports WHERE iata_code=%s;', (iata_code,))
                 airport_data = cursor.fetchone()
-                timezone = airport_data[1] + '/' + airport_data[2]
+                timezone = pytz.timezone(airport_data[1] + '/' + airport_data[2])
                 airport = cls(iata_code=airport_data[0], timezone=timezone, viaticum=airport_data[3])
                 cls._airports[iata_code] = airport
         return airport
@@ -182,7 +183,6 @@ class Route(object):
             self.route_id = route_id
         return self.route_id
 
-
     def load_route_id(self):
         with CursorFromConnectionPool() as cursor:
             cursor.execute('SELECT route_id FROM public.routes '
@@ -193,6 +193,7 @@ class Route(object):
             route_id = cursor.fetchone()
             if route_id:
                 return route_id[0]
+
     #
     # @classmethod
     # def load_from_db_by_id(cls, route_id):

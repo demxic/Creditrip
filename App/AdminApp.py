@@ -57,7 +57,11 @@ class Menu:
         files = verify_files(data_folder, file_names)
 
     def parse_trips_from_files(self):
-        """Will read each pbs trip file and turn it into usable dictionaries"""
+        """Will read each pbs trip file and turn it into usable dictionaries
+
+        First run: from scaderd data in the pbs file to readable strings
+        Second run: from strings into dictionaries
+        Third run: from dictionaries into objects"""
         
         unstored_trips = list()
         for file in files:
@@ -65,11 +69,11 @@ class Menu:
             print("\n Parsing file : {}".format(file))
             position = input("Is this a PBS file for EJE or SOB? ").upper()
             cleaned_content = page_number_remover(file)
-            total_trips = number_of_trips_in_pbs_file(cleaned_content)
+            total_trips_in_pbs_file = number_of_trips_in_pbs_file(cleaned_content)
             trips_as_dict = create_trips_as_dict(trips_as_strings=cleaned_content)
-            if total_trips != len(trips_as_dict):
+            if total_trips_in_pbs_file != len(trips_as_dict):
                 print("Warning! {} trips should be processed but only {} were found".format(
-                    total_trips, len(trips_as_dict)
+                    total_trips_in_pbs_file, len(trips_as_dict)
                 ))
             pending_trips = build_trips(trips_as_dict, position, postpone=True)
         #         unstored_trips.extend(pending_trips)

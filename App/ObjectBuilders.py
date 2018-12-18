@@ -1,5 +1,7 @@
-from data.exceptions import TripBlockError, UnbuiltTripError, DutyDayBlockError, UndefinedBlockTime
-from models.scheduleClasses import Trip, DutyDay, Flight, Airport, Itinerary, Equipment, Route
+import datetime
+
+from data.exceptions import TripBlockError, UnbuiltTripError, DutyDayBlockError
+from models.scheduleClasses import Trip, DutyDay, Flight, Airport, Route, Itinerary, Equipment
 from models.timeClasses import DateTimeTracker
 from copy import copy
 
@@ -17,7 +19,7 @@ def build_carrier(flight_dict):
     return carrier_code
 
 
-def build_route(name: object, origin: object, destination: object) -> object:
+def build_route(name: str, origin: Airport, destination: Airport) -> Route:
     route_key = name + origin.iata_code + destination.iata_code
     if route_key not in Route._routes:
         # Route has not been loaded from the DB
@@ -34,14 +36,14 @@ def build_route(name: object, origin: object, destination: object) -> object:
 
 
 def build_flight(dt_tracker: DateTimeTracker, flight_dict: dict,
-                 postpone: bool, suggested_blk: str) -> Flight:
+                 postpone: bool) -> Flight:
     # TODO: Rename dt_tracker to date_time_tracker
     # 1. Get the route
     # take into consideration the last 4 digits Because some flights start with 'DH'
     # origin = get_airport(flight_dict['origin'])
     # destination = get_airport(flight_dict['destination'])
-    origin = Airport(flight_dict['origin'])
-    destination = Airport(flight_dict['destination'])
+    origin = Airport.load_from_db_by_iata_code(flight_dict['origin'])
+    destination = Airport.load_from_db_by_iata_code(flight_dict['destination'])
     route = build_route(flight_dict['name'][-4:], origin, destination)
 
     # 2. We need the airline code
@@ -49,49 +51,22 @@ def build_flight(dt_tracker: DateTimeTracker, flight_dict: dict,
 
     # 3. Find the flight in the DB
     begin = copy(dt_tracker.dt)
-    flight = Flight.load_from_db_by_fields(airline_iata_code=carrier_code,
-                                           scheduled_begin=begin,
-                                           route=route)
+    flight = None
+    # flight = Flight.load_from_db_by_fields(airline_iata_code=carrier_code,
+    #                                        scheduled_begin=begin,
+    #                                        route=route)
 
     # 4. Create and store flight if not found in the DB
     if not flight:
-        try:
-            if flight_dict['blk'] != '0000':
-                # 4.a Found a regular flight, create it
-                td = dt_tracker.forward(flight_dict['blk'])
-                itinerary = Itinerary.from_timedelta(begin=begin, a_timedelta=td)
-            elif suggested_blk != '0000' and suggested_blk.isnumeric():
-                # 4.b Found a DH flight in a duty day with a suggested block time
-                td = dt_tracker.forward(suggested_blk)
-                itinerary = Itinerary.from_timedelta(begin=begin, a_timedelta=td)
-                if not itinerary.in_same_month():
-                    # Flight reaches next month and therefore it's block time cannot be determined
-                    dt_tracker.backward(suggested_blk)
-                    raise UndefinedBlockTime()
-            else:
-                raise UndefinedBlockTime()
 
-        except UndefinedBlockTime:
-
-            # 4.d Unable to determine flight blk, must enter it manually
-            if postpone:
-                raise UnbuiltTripError()
-            else:
-                print("FLT {} {} {} {} {} {} ".format(dt_tracker.date, flight_dict['name'],
-                                                      flight_dict['origin'], flight_dict['begin'],
-                                                      flight_dict['destination'], flight_dict['end']))
-                print("unable to determine DH time.")
-                print("")
-                blk = input("Insert time as HHMM format :")
-                td = dt_tracker.forward(blk)
-                itinerary = Itinerary.from_timedelta(begin=begin, a_timedelta=td)
-
+        # 4.a Found a regular flight, create it
+        end = dt_tracker.no_name(time_string=flight_dict['end'],
+                                 destination_timezone=destination.timezone)
+        itinerary = Itinerary(begin=begin, end=end)
         equipment = Equipment(flight_dict['equipment'])
         flight = Flight(route=route, scheduled_itinerary=itinerary,
                         equipment=equipment, carrier=carrier_code)
-        flight.save_to_db()
-    else:
-        dt_tracker.forward(str(flight.duration))
+        #flight.save_to_db()
 
     flight.dh = not flight_dict['name'].isnumeric()
     return flight
@@ -99,11 +74,10 @@ def build_flight(dt_tracker: DateTimeTracker, flight_dict: dict,
 
 def build_duty_day(dt_tracker, duty_day_dict, postpone):
     """Returns a DutyDay object from a dictionary"""
-    dt_tracker.start()
     duty_day = DutyDay()
 
     for flight_dict in duty_day_dict['flights']:
-        flight = build_flight(dt_tracker, flight_dict, postpone, suggested_blk=duty_day_dict['crd'])
+        flight = build_flight(dt_tracker, flight_dict, postpone)
         if flight:
             duty_day.append(flight)
             dt_tracker.forward(flight_dict['turn'])
@@ -118,12 +92,17 @@ def build_duty_day(dt_tracker, duty_day_dict, postpone):
 
 
 def build_trip(trip_dict: dict, postpone: bool) -> Trip:
-    dt_tracker = DateTimeTracker(trip_dict['date_and_time'])
-    trip = Trip(number=trip_dict['number'], dated=dt_tracker.date)
-
-    for json_dd in trip_dict['duty_days']:
+    # TODO : timezone parameter inside DateTimeTracker should be a variable
+    base_timezone = Airport.load_from_db_by_iata_code('MEX').timezone
+    dt_tracker = DateTimeTracker(begin=trip_dict['dated']+trip_dict['check_in'],
+                                 timezone=base_timezone)
+    trip = Trip(number=trip_dict['number'], check_in=dt_tracker.dt)
+    if trip.number == '5525':
+         s = input()
+    for duty_day_dict in trip_dict['duty_days']:
         try:
-            duty_day = build_duty_day(dt_tracker, json_dd, postpone)
+            dt_tracker.start()
+            duty_day = build_duty_day(dt_tracker, duty_day_dict, postpone)
             trip.append(duty_day)
 
         except DutyDayBlockError as e:
@@ -141,19 +120,54 @@ def build_trip(trip_dict: dict, postpone: bool) -> Trip:
                 trip.append(e.duty_day)
 
     return trip
+# def build_trip(trip_dict: dict, postpone: bool) -> Trip:
+#     dt_tracker = DateTimeTracker(trip_dict['date_and_time'])
+#     trip = Trip(number=trip_dict['number'], dated=dt_tracker.date)
+#
+#     for json_dd in trip_dict['duty_days']:
+#         try:
+#             duty_day = build_duty_day(dt_tracker, json_dd, postpone)
+#             trip.append(duty_day)
+#
+#         except DutyDayBlockError as e:
+#             print("For trip {0} dated {1}, ".format(trip_dict['number'], trip_dict['dated']), end=' ')
+#             print("found inconsistent duty day : ")
+#             print("       ", e.duty_day)
+#             if postpone:
+#                 e.delete_invalid_flights()
+#                 raise UnbuiltTripError
+#             else:
+#                 print("... Correcting for inconsistent duty day: ")
+#                 e.correct_invalid_events()
+#                 print("Corrected duty day")
+#                 print(e.duty_day)
+#                 trip.append(e.duty_day)
+#
+#     return trip
 
 
 def build_trips(trips_as_dict, position, postpone=True):
-    # 2. Turn each trip_dict into a Trip object
+    """trip_as_dict fields:
 
+    number: 4 digit str
+    check_in: str representing time as HH:MM or %H:%M
+    dated: str representing a date as DDMMMYY or %d%b%Y
+    duty_days: list of duty_days; each duty_day is also a dictionary cf.
+    tl: total block + credit time represented as an HH:MM str
+    bl: total block time as an HH:MM str
+    cr: total credit time as an HH:MM str
+    tafb: Time Away From Base as an HH:MM str
+    date_and_time: DDMMMYYHH:MM as a str
+    position: SOB or EJE str
+    """
     trip_dict_count = 0
     unstored_trips = list()
     for trip_as_dict in trips_as_dict:
         if 'position' not in trip_as_dict:
             trip_as_dict['position'] = position
-        trip_dict_count += 1
         try:
             trip = build_trip(trip_as_dict, postpone)
+            trip_dict_count += 1
             if trip.duration.no_trailing_zero() != trip_as_dict['tafb']:
                 print(trip_as_dict)
                 raise TripBlockError(trip_as_dict['tafb'], trip)
@@ -172,7 +186,8 @@ def build_trips(trips_as_dict, position, postpone=True):
         else:
             print("Trip {0.number} dated {0.dated} saved".format(trip))
             trip.position = position
-            trip.save_to_db()
+            # trip.save_to_db()
 
     print("{} json trips found ".format(trip_dict_count))
-    return unstored_trips
+    return None
+    #return unstored_trips
