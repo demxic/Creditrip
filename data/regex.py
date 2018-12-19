@@ -30,7 +30,7 @@ dutyday_RE = re.compile(r'''
     (?P<report>\d{4})\s+                         #duty day's first flight report time
     (?P<flights>.*?)                             #All flights data to be further examined
     ((?P<layover_city>[A-Z]{3})\s+               # Layover city      v.gr. GDL
-     (?P<layover_duration>\d{2}:\d{2}))?\s+      # Layover duration  v.gr. 23:54
+     (?P<layover_duration>\d{2,3}:\d{2}))?\s+      # Layover duration  v.gr. 23:54
     (?P<bl>\d{4})BL\s+                           #As a named group ---> (?P<bl>\d{4})BL\s+
     (?P<crd> [-\d]{4,5})CRD\s+                          #As a named group ---> (?P<crd>\d{4})CRD\s+
     (?P<tl>\d{4})TL\s+                               #As a named group ---> (?P<tl>\d{4})TL\s+
