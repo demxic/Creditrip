@@ -1,3 +1,4 @@
+import pickle
 import sys
 from pathlib import Path
 
@@ -6,6 +7,8 @@ from FileParsers.filereaders import verify_files, page_number_remover, create_tr
 from data.database import Database
 
 files = []
+data_folder = Path("C:/Users/Xico/Google Drive/Sobrecargo/PBS/2018 PBS/201810 PBS")
+pickled_unsaved_trips_file = 'pickled_unsaved_trips'
 Database.initialise(database="orgutrip", user="postgres", password="0933", host="localhost")
 
 
@@ -28,9 +31,9 @@ class Menu:
 
         1. Elejir los archivos con los trips.
         2. Leer cada archivo con los trips y generar los objetos.
-        2. Trabajar con los trips que no pudieron ser creados.
-        3. Buscar un trip en especìfico.
-        4. Leer los archivos con las reservas.
+        3. Trabajar con los trips que no pudieron ser creados.
+        4. Buscar un trip en especìfico.
+        5. Leer los archivos con las reservas.
         10. Quit
         ''')
 
@@ -49,8 +52,7 @@ class Menu:
         """This option chooses the files that are to be read and turned into meaningful data
 
         """
-        global files
-        data_folder = Path("C:/Users/Xico/Google Drive/Sobrecargo/PBS/2018 PBS/201810 PBS")
+        global files, data_folder
         file_names = ["201810 - PBS vuelos SOB A.txt", 
                       "201810 - PBS vuelos SOB B.txt",
                       "201810 - PBS vuelos EJE.txt"]
@@ -76,13 +78,23 @@ class Menu:
                     total_trips_in_pbs_file, len(trips_as_dict)
                 ))
             pending_trips = build_trips(trips_as_dict, position, postpone=True)
-        #         unstored_trips.extend(pending_trips)
-        # outfile = open(pbs_path + pickled_unsaved_trips_file, 'wb')
-        # pickle.dump(unstored_trips, outfile)
-        # outfile.close()
+            print("{} trips contained in PBS pdf file".format(total_trips_in_pbs_file))
+            print("{} trips were not built!".format(len(pending_trips)))
+            unstored_trips.extend(pending_trips)
+        outfile = open(data_folder / pickled_unsaved_trips_file, 'wb')
+        pickle.dump(unstored_trips, outfile)
+        outfile.close()
 
     def figure_out_unsaved_trips(self):
-        pass
+        infile = open(data_folder / pickled_unsaved_trips_file, 'rb')
+        unstored_trips = pickle.load(infile)
+        print("Building {} unsaved_trips :".format(len(unstored_trips)))
+        # 1. Let us go over all trips again, some might now be discarded
+        irreparable_trips = build_trips(unstored_trips, None, postpone=False)
+        print(" {} unsaved_trips".format(len(irreparable_trips)))
+        outfile = open(data_folder / pickled_unsaved_trips_file, 'wb')
+        pickle.dump(irreparable_trips, outfile)
+        outfile.close()
 
     def search_for_trip(self):
         pass

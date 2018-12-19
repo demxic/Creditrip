@@ -97,8 +97,8 @@ def build_trip(trip_dict: dict, postpone: bool) -> Trip:
     dt_tracker = DateTimeTracker(begin=trip_dict['dated']+trip_dict['check_in'],
                                  timezone=base_timezone)
     trip = Trip(number=trip_dict['number'], check_in=dt_tracker.dt)
-    if trip.number == '5525':
-         s = input()
+    # if trip.number == '5534':
+    #      s = input()
     for duty_day_dict in trip_dict['duty_days']:
         try:
             dt_tracker.start()
@@ -167,10 +167,9 @@ def build_trips(trips_as_dict, position, postpone=True):
             trip_as_dict['position'] = position
         try:
             trip = build_trip(trip_as_dict, postpone)
-            trip_dict_count += 1
             if trip.duration.no_trailing_zero() != trip_as_dict['tafb']:
-                print(trip_as_dict)
                 raise TripBlockError(trip_as_dict['tafb'], trip)
+            trip_dict_count += 1
 
         except TripBlockError as e:
             # TODO : Granted, there's a trip block error, what actions should be taken to correct it? (missing)
@@ -188,6 +187,5 @@ def build_trips(trips_as_dict, position, postpone=True):
             trip.position = position
             # trip.save_to_db()
 
-    print("{} json trips found ".format(trip_dict_count))
-    return None
-    #return unstored_trips
+    print("{} dict trips proccesed! ".format(trip_dict_count))
+    return unstored_trips
