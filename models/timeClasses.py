@@ -120,34 +120,33 @@ class DateTimeTracker(object):
         "Moves half an hour ahead"
         self.dt += timedelta(minutes=30)
 
-    def no_name(self, time_string: str, destination_timezone):
+    def build_end_dt(self, time_string: str, destination_timezone):
+        """Given an end_time and a timezone for it...
+
+        build and return the corresponding aware end_datetime.
+        Update DateTimeTracker correspondingly afterwards
+        """
         begin_as_destination_time_zone = self.dt.astimezone(destination_timezone)
         end_hour = int(time_string[0:2])
         end_minutes = int(time_string[2:4])
-        preliminary_end = begin_as_destination_time_zone.replace(
-            hour=end_hour, minute=end_minutes)
+        end_date = begin_as_destination_time_zone.date()
+        end_time = time(hour=end_hour, minute=end_minutes)
+        preliminary_end = destination_timezone.localize(datetime.combine(end_date, end_time))
         if preliminary_end < begin_as_destination_time_zone:
             end_date = (preliminary_end + timedelta(days=1)).date()
             end_time = time(hour=end_hour, minute=end_minutes)
-            end_datetime = datetime.combine(end_date, end_time)
-            end = destination_timezone.localize(end_datetime)
-        elif (preliminary_end.date() == begin_as_destination_time_zone.date()) and (
-                preliminary_end.time() < begin_as_destination_time_zone.time()):
-            end_date = (preliminary_end + timedelta(days=1)).date()
-            end_time = preliminary_end.time()
             end_datetime = datetime.combine(end_date, end_time)
             end = destination_timezone.localize(end_datetime)
         else:
             end = preliminary_end
         self.dt = end
         return end
-        # return end.astimezone(self.timezone)
 
     def forward(self, time_string: str) -> timedelta:
         """Moves HH hours and MM minutes forward in time.
         time_string may be of type HH:MM or HHMM
         """
-        hh = int(time_string[:2])
+        hh = int(time_string[:-3])
         mm = int(time_string[-2:])
         td: timedelta = timedelta(hours=hh, minutes=mm)
         self.dt += td

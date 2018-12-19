@@ -60,8 +60,8 @@ def build_flight(dt_tracker: DateTimeTracker, flight_dict: dict,
     if not flight:
 
         # 4.a Found a regular flight, create it
-        end = dt_tracker.no_name(time_string=flight_dict['end'],
-                                 destination_timezone=destination.timezone)
+        end = dt_tracker.build_end_dt(time_string=flight_dict['end'],
+                                      destination_timezone=destination.timezone)
         itinerary = Itinerary(begin=begin, end=end)
         equipment = Equipment(flight_dict['equipment'])
         flight = Flight(route=route, scheduled_itinerary=itinerary,
