@@ -240,14 +240,14 @@ class Itinerary(object):
         end = begin + a_timedelta
         return cls(begin, end)
 
-    @classmethod
-    def create_itinerary(cls):
-        """Given an itinerary as a string"""
-        print("For begin ", end=" ")
-        begin_datetime = create_datetime()
-        print("For end ", end=" ")
-        end_datetime = create_datetime()
-        return cls(begin=begin_datetime, end=end_datetime)
+    # @classmethod
+    # def create_itinerary(cls):
+    #     """Given an itinerary as a string"""
+    #     print("For begin ", end=" ")
+    #     begin_datetime = create_datetime()
+    #     print("For end ", end=" ")
+    #     end_datetime = create_datetime()
+    #     return cls(begin=begin_datetime, end=end_datetime)
 
     @classmethod
     def from_date_and_strings(cls, date: datetime.date, begin: str, end: str):
@@ -300,6 +300,17 @@ class Itinerary(object):
     #     begin_date = self.begin.date()
     #     overlap = max(0, min(self.end, other.end) - max(self.begin, other.begin))
     #     return overlap
+
+    # TODO : Itinerary should have its original begin and end datetimes as private parameters and should always be UTC?
+    def astimezone(self, timezone = 'local'):
+        """Turn begin and end datetimes to the specified timezone"""
+        if timezone != 'local':
+            self.begin = self.begin.astimezone(tz=timezone)
+            self.end = self.end.astimezone(tz=timezone)
+        else:
+            # TODO : To be implemented
+            pass
+
 
     def __str__(self):
         template = "{0.begin:%d%b} BEGIN {0.begin:%H%M} END {0.end:%H%M}"
@@ -358,6 +369,14 @@ class Event(object):
 
     def compute_credits(self, creditator=None):
         self._credits = {'block': Duration(0), 'dh': Duration(0), 'daily': Duration(0)}
+
+    def astimezone(self, timezone='local'):
+        """Change event's itineraries to given timezone"""
+        if timezone != 'local':
+            self.scheduled_itinerary.astimezone(timezone)
+        else:
+            # TODO : To be implemented
+            pass
 
     def __str__(self) -> str:
         if self.scheduled_itinerary:
@@ -783,6 +802,15 @@ class Flight(GroundDuty):
                 return cls(route=route, scheduled_itinerary=scheduled_itinerary, actual_itinerary=actual_itinerary,
                            equipment=equipment, carrier=carrier_code, event_id=flight_id)
 
+    def astimezone(self, timezone='local'):
+        """Change event's itineraries to given timezone"""
+        if timezone != 'local':
+            self.scheduled_itinerary.astimezone(timezone)
+            self.actual_itinerary.astimezone(timezone)
+        else:
+            # TODO : To be implemented
+            pass
+
     def __str__(self):
         template = """
         {0.begin:%d%b} {0.name:>6s} {0.route.origin} {0.begin:%H%M} {0.route.destination} {0.end:%H%M}\
@@ -940,6 +968,15 @@ class DutyDay(object):
     #     for flight, actual_flight in zip(self.events, duty_day.events):
     #         flight.actual_itinerary = actual_flight.actual_itinerary
 
+    def astimezone(self, timezone='local'):
+        """Change event's itineraries to given timezone"""
+        if timezone != 'local':
+            for event in self.events:
+                event.astimezone(timezone)
+        else:
+            # TODO : To be implemented
+            pass
+
     def __str__(self):
         """The string representation of the current DutyDay"""
         rpt = '{:%H%M}'.format(self.report)
@@ -1087,6 +1124,16 @@ class Trip(object):
     #
     # def __setitem__(self, key, value):
     #     self.duty_days[key] = value
+
+    def astimezone(self, timezone='local'):
+        """Change event's itineraries to given timezone"""
+        if timezone != 'local':
+            for duty_day in self.duty_days:
+                duty_day.astimezone(timezone)
+        else:
+            # TODO : To be implemented
+            pass
+
 
     def __str__(self):
         self.compute_credits()
