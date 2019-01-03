@@ -104,63 +104,113 @@ class Duration(object):
 
 class DateTimeTracker(object):
     """Keeps track of datetime object in order to build Itineraries"""
+    date_format = "%d%b%Y"
+    time_format = "%H:%M"
+    datetime_format = date_format + time_format
 
-    def __init__(self, begin: str, timezone=None):
-        self.datetime_format = "%d%b%Y%H:%M"
-        self.timezone = timezone
-        self.dt = datetime.strptime(begin, self.datetime_format)
-        if timezone:
-            self.dt = self.timezone.localize(self.dt)
+    def __init__(self, date: str, time: str, timezone=None):
+        self.init_string_date = date
+        self.init_string_time = time
+        self.init_datetime = datetime.strptime(date + time, self.__class__.datetime_format)
+        self.dt = timezone.localize(self.init_datetime)
 
-    def start(self):
-        """Moves one hour ahead"""
-        self.dt += timedelta(hours=1)
+    # def start(self):
+    #     """Moves one hour ahead"""
+    #     self.dt += timedelta(hours=1)
+    #
+    # def release(self):
+    #     "Moves half an hour ahead"
+    #     self.dt += timedelta(minutes=30)
 
-    def release(self):
-        "Moves half an hour ahead"
-        self.dt += timedelta(minutes=30)
+    def build_date(self, month: str, day: str):
+        """Given a day, and a month return a valid further-in-time date"""
+        year = self.init_string_date[-4:]
+        preliminary_date = datetime.strptime(day + month + year, self.__class__.date_format).date()
+        if preliminary_date < self.dt.date():
+            new_date = preliminary_date.replace(year=int(year) + 1)
+        else:
+            new_date = preliminary_date
+        self.dt = self.dt.replace(year=new_date.year, month=new_date.month, day=new_date.day,
+                        hour=0, minute=0)
+        return self.dt
 
-    def build_end_dt(self, time_string: str, destination_timezone):
+    def build_end_dt(self, time_string: str, destination_timezone, end_date: datetime.date=None):
         """Given an end_time and a timezone for it...
 
         build and return the corresponding aware end_datetime.
         Update DateTimeTracker correspondingly afterwards
         """
-        begin_as_destination_time_zone = self.dt.astimezone(destination_timezone)
+        if self.dt.tzinfo.zone != destination_timezone.zone:
+            begin_as_destination_time_zone = self.dt.astimezone(destination_timezone)
+        else:
+            begin_as_destination_time_zone = self.dt
         end_hour = int(time_string[0:2])
         end_minutes = int(time_string[2:4])
-        end_date = begin_as_destination_time_zone.date()
+        if not end_date:
+            end_date = begin_as_destination_time_zone.date()
         end_time = time(hour=end_hour, minute=end_minutes)
         preliminary_end = destination_timezone.localize(datetime.combine(end_date, end_time))
         if preliminary_end < begin_as_destination_time_zone:
             end_date = (preliminary_end + timedelta(days=1)).date()
             end_time = time(hour=end_hour, minute=end_minutes)
             end_datetime = datetime.combine(end_date, end_time)
-            end = destination_timezone.localize(end_datetime)
+            self.dt = destination_timezone.localize(end_datetime)
+            # end = destination_timezone.localize(end_datetime)
         else:
-            end = preliminary_end
-        self.dt = end
-        return end
+            # end = preliminary_end
+            self.dt = preliminary_end
+        return self.dt
 
-    def forward(self, time_string: str) -> timedelta:
-        """Moves HH hours and MM minutes forward in time.
-        time_string may be of type HH:MM or HHMM
-        """
-        hh = int(time_string[:-3])
-        mm = int(time_string[-2:])
-        td: timedelta = timedelta(hours=hh, minutes=mm)
-        self.dt += td
-        return td
+    # def build_end_dt(self, time_string: str, destination_timezone, end_date: datetime.date=None):
+    #     """Given an end_time and a timezone for it...
+    #
+    #     build and return the corresponding aware end_datetime.
+    #     Update DateTimeTracker correspondingly afterwards
+    #     """
+    #     if self.dt.tzinfo.zone != destination_timezone.zone:
+    #         begin_as_destination_time_zone = self.dt.astimezone(destination_timezone)
+    #     else:
+    #         begin_as_destination_time_zone = self.dt
+    #     end_hour = int(time_string[0:2])
+    #     end_minutes = int(time_string[2:4])
+    #     if not end_date:
+    #         end_date = begin_as_destination_time_zone.date()
+    #     end_time = time(hour=end_hour, minute=end_minutes)
+    #     preliminary_end = destination_timezone.localize(datetime.combine(end_date, end_time))
+    #     if preliminary_end < begin_as_destination_time_zone:
+    #         end_date = (preliminary_end + timedelta(days=1)).date()
+    #         end_time = time(hour=end_hour, minute=end_minutes)
+    #         end_datetime = datetime.combine(end_date, end_time)
+    #         self.dt = destination_timezone.localize(end_datetime)
+    #         # end = destination_timezone.localize(end_datetime)
+    #     else:
+    #         # end = preliminary_end
+    #         self.dt = preliminary_end
+    #     return self.dt
 
-    def backward(self, time_string: str) -> timedelta:
-        """Moves HH hours and MM minutes backward in time.
-        time_string may be of type HH:MM or HHMM
-        """
-        hh = int(time_string[:2])
-        mm = int(time_string[-2:])
-        td: timedelta = timedelta(hours=hh, minutes=mm)
-        self.dt -= td
-        return td
+    # def forward(self, time_string: str) -> timedelta:
+    #     """Moves HH hours and MM minutes forward in time.
+    #     time_string may be of type HH:MM or HHMM
+    #     """
+    #     time_string = time_string.replace(':', '')
+    #     hh = int(time_string[:-2])
+    #     mm = int(time_string[-2:])
+    #     td: timedelta = timedelta(hours=hh, minutes=mm)
+    #     self.dt += td
+    #     return td
+    #
+    # def backward(self, time_string: str) -> timedelta:
+    #     """Moves HH hours and MM minutes backward in time.
+    #     time_string may be of type HH:MM or HHMM
+    #     """
+    #     hh = int(time_string[:2])
+    #     mm = int(time_string[-2:])
+    #     td: timedelta = timedelta(hours=hh, minutes=mm)
+    #     self.dt -= td
+    #     return td
+
+    def astimezone(self, timezone):
+        self.dt = self.dt.astimezone(timezone)
 
     @property
     def date(self):
