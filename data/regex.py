@@ -25,8 +25,8 @@ flights_RE = re.compile(r"""
 
 # Used to parse a duty day from a PBS_trips_file
 dutyday_RE = re.compile(r'''
-    (?P<day>\d{2})                               #DD day for the first flight in the dutyday
-    (?P<month>[A-Z]{3})\s+                       #MMM month for the first flight in the dutyday
+    (?P<day>\d{2})                               #DD departure day for the first flight in the dutyday
+    (?P<month>[A-Z]{3})\s+                       #MMM departure month for the first flight in the dutyday
     (?P<report>\d{4})\s+                         #duty day's first flight report time
     (?P<flights>.*?)                             #All flights data to be further examined
     ((?P<layover_city>[A-Z]{3})\s+               # Layover city      v.gr. GDL
