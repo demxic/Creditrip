@@ -1,6 +1,13 @@
 from models.scheduleClasses import DutyDay, Itinerary
 
 
+class MissingAirport(Exception):
+
+    def __init__(self, missing_airport: str):
+        super().__init__("{} airport not stored in the DB".format(missing_airport))
+        self.airport_iata_code = missing_airport
+
+
 class DutyDayBlockError(Exception):
 
     def __init__(self, duty_day_dict: dict, duty_day: DutyDay) -> None:
@@ -42,6 +49,10 @@ class TripBlockError(Exception):
 
 
 class UnbuiltTripError(Exception):
+    pass
+
+
+class UnstoredTrip(Exception):
     pass
 
 
