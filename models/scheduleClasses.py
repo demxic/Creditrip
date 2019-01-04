@@ -1,10 +1,13 @@
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, date
 
 import psycopg2
 import pytz
 
 from data.database import CursorFromConnectionPool
+import data.exceptions
 from models.timeClasses import Duration
+
+utc = pytz.utc
 
 
 class Airport(object):
@@ -62,6 +65,8 @@ class Airport(object):
             with CursorFromConnectionPool() as cursor:
                 cursor.execute('SELECT * FROM airports WHERE iata_code=%s;', (iata_code,))
                 airport_data = cursor.fetchone()
+                if not airport_data:
+                    raise data.exceptions.MissingAirport(iata_code)
                 timezone = pytz.timezone(airport_data[1] + '/' + airport_data[2])
                 airport = cls(iata_code=airport_data[0], timezone=timezone, viaticum=airport_data[3])
                 cls._airports[iata_code] = airport
@@ -230,15 +235,50 @@ class Itinerary(object):
     """ An Itinerary represents a Duration occurring between a 'begin' and an 'end' datetime. """
 
     def __init__(self, begin: datetime, end: datetime):
-        """Enter beginning and ending datetime"""
-        self.begin = begin
-        self.end = end
+        """Enter beginning and ending utc aware-datetime """
+        self._begin = begin
+        self._end = end
+        self.begin_timezone = begin.tzinfo
+        self.end_timezone = end.tzinfo
 
     @classmethod
     def from_timedelta(cls, begin: datetime, a_timedelta: timedelta):
         """Returns an Itinerary from a given begin datetime and the timedelta duration of it"""
         end = begin + a_timedelta
         return cls(begin, end)
+
+    @property
+    def begin(self):
+        return self._begin.astimezone(self.begin_timezone)
+
+    @begin.setter
+    def begin(self, new_begin):
+        self.begin_timezone = new_begin.tzinfo
+        self._begin = new_begin.astimezone(utc)
+
+    @property
+    def end(self):
+        return self._end.astimezone(self.end_timezone)
+
+    @end.setter
+    def end(self, new_end):
+        self.end_timezone = new_end.tzinfo
+        self._end = new_end.astimezone(utc)
+
+    @property
+    def duration(self) -> Duration:
+        return Duration.from_timedelta(self._end - self._begin)
+
+    def astimezone(self, begin_timezone, end_timezone):
+        self.begin_timezone = begin_timezone
+        self.end_timezone = end_timezone
+
+    def __str__(self):
+        template = "{0.begin:%d%b} BEGIN {0.begin:%H%M} END {0.end:%H%M}"
+        return template.format(self)
+
+    def __eq__(self, other):
+        return (self.begin == other.begin) and (self.end == other.end)
 
     # @classmethod
     # def create_itinerary(cls):
@@ -249,37 +289,33 @@ class Itinerary(object):
     #     end_datetime = create_datetime()
     #     return cls(begin=begin_datetime, end=end_datetime)
 
-    @classmethod
-    def from_date_and_strings(cls, date: datetime.date, begin: str, end: str):
-        """date should  be a datetime.date object
-        begin and end should have a %H%M (2345) format"""
-        begin = '0000' if begin == '2400' else begin
-        end = '0000' if end == '2400' else end
-        formatting = '%H%M'
-        begin_string = datetime.strptime(begin, formatting).time()
-        begin = datetime.combine(date, begin_string)
-        end_string = datetime.strptime(end, formatting).time()
-        end = datetime.combine(date, end_string)
-
-        if end < begin:
-            end += timedelta(days=1)
-        return cls(begin, end)
-
-    @classmethod
-    def from_string(cls, input_string: str):
-        """
-        format DDMMYYYY HHMM    HHMM
-               23122019 1340    0320
-               DATE     begin   blk
-        """
-        date, begin, blk = input_string.split()
-        formatting = '%d%m%Y%H%M'
-        begin = datetime.strptime(date + begin, formatting)
-        return cls.from_timedelta(begin=begin, a_timedelta=Duration.from_string(blk).as_timedelta())
-
-    @property
-    def duration(self) -> Duration:
-        return Duration.from_timedelta(self.end - self.begin)
+    # @classmethod
+    # def from_date_and_strings(cls, date: datetime.date, begin: str, end: str):
+    #     """date should  be a datetime.date object
+    #     begin and end should have a %H%M (2345) format"""
+    #     begin = '0000' if begin == '2400' else begin
+    #     end = '0000' if end == '2400' else end
+    #     formatting = '%H%M'
+    #     begin_string = datetime.strptime(begin, formatting).time()
+    #     begin = datetime.combine(date, begin_string)
+    #     end_string = datetime.strptime(end, formatting).time()
+    #     end = datetime.combine(date, end_string)
+    #
+    #     if end < begin:
+    #         end += timedelta(days=1)
+    #     return cls(begin, end)
+    #
+    # @classmethod
+    # def from_string(cls, input_string: str):
+    #     """
+    #     format DDMMYYYY HHMM    HHMM
+    #            23122019 1340    0320
+    #            DATE     begin   blk
+    #     """
+    #     date, begin, blk = input_string.split()
+    #     formatting = '%d%m%Y%H%M'
+    #     begin = datetime.strptime(date + begin, formatting)
+    #     return cls.from_timedelta(begin=begin, a_timedelta=Duration.from_string(blk).as_timedelta())
 
     # def get_elapsed_dates(self):
     #     """Returns a list of dates in range [self.begin, self.end]"""
@@ -287,11 +323,11 @@ class Itinerary(object):
     #     all_dates = (self.begin.date() + timedelta(days=i) for i in range(delta.days + 1))
     #     return list(all_dates)
     #
-    def in_same_month(self):
-        if self.begin.month == self.end.month:
-            return True
-        else:
-            return False
+    # def in_same_month(self):
+    #     if self.begin.month == self.end.month:
+    #         return True
+    #     else:
+    #         return False
 
     # def compute_credits(self, itinerator=None):
     #     return None
@@ -300,24 +336,6 @@ class Itinerary(object):
     #     begin_date = self.begin.date()
     #     overlap = max(0, min(self.end, other.end) - max(self.begin, other.begin))
     #     return overlap
-
-    # TODO : Itinerary should have its original begin and end datetimes as private parameters and should always be UTC?
-    def astimezone(self, timezone = 'local'):
-        """Turn begin and end datetimes to the specified timezone"""
-        if timezone != 'local':
-            self.begin = self.begin.astimezone(tz=timezone)
-            self.end = self.end.astimezone(tz=timezone)
-        else:
-            # TODO : To be implemented
-            pass
-
-
-    def __str__(self):
-        template = "{0.begin:%d%b} BEGIN {0.begin:%H%M} END {0.end:%H%M}"
-        return template.format(self)
-
-    def __eq__(self, other):
-        return (self.begin == other.begin) and (self.end == other.end)
 
 
 class Event(object):
@@ -373,10 +391,11 @@ class Event(object):
     def astimezone(self, timezone='local'):
         """Change event's itineraries to given timezone"""
         if timezone != 'local':
-            self.scheduled_itinerary.astimezone(timezone)
+            self.scheduled_itinerary.astimezone(begin_timezone=timezone,
+                                                end_timezone=timezone)
         else:
-            # TODO : To be implemented
-            pass
+            self.scheduled_itinerary.astimezone(begin_timezone=self.route.origin.timezone,
+                                                end_timezone=self.route.destination.timezone)
 
     def __str__(self) -> str:
         if self.scheduled_itinerary:
@@ -514,6 +533,28 @@ class Flight(GroundDuty):
         self.dh = dh
         # self.is_flight = True
 
+    @property
+    def begin(self) -> datetime:
+        return self.actual_itinerary.begin if self.actual_itinerary else self.scheduled_itinerary.begin
+
+    @begin.setter
+    def begin(self, new_begin: datetime):
+        if self.actual_itinerary:
+            self.actual_itinerary.begin = new_begin
+        else:
+            self.scheduled_itinerary.begin = new_begin
+
+    @property
+    def end(self) -> datetime:
+        return self.actual_itinerary.end if self.actual_itinerary else self.scheduled_itinerary.end
+
+    @end.setter
+    def end(self, new_end: datetime):
+        if self.actual_itinerary:
+            self.actual_itinerary.end = new_end
+        else:
+            self.scheduled_itinerary.end = new_end
+
     # @classmethod
     # def from_string(cls, flight_data: str):
     #     """Given a Flight as a list of type:
@@ -563,29 +604,7 @@ class Flight(GroundDuty):
     #         input("What is the 3 letter code for the aircraft flown?  ").capitalize())
     #
     #     return event_parameters
-
-    @property
-    def begin(self) -> datetime:
-        return self.actual_itinerary.begin if self.actual_itinerary else self.scheduled_itinerary.begin
-
-    @begin.setter
-    def begin(self, new_begin: datetime):
-        if self.actual_itinerary:
-            self.actual_itinerary.begin = new_begin
-        else:
-            self.scheduled_itinerary.begin = new_begin
-
-    @property
-    def end(self) -> datetime:
-        return self.actual_itinerary.end if self.actual_itinerary else self.scheduled_itinerary.end
-
-    @end.setter
-    def end(self, new_end: datetime):
-        if self.actual_itinerary:
-            self.actual_itinerary.end = new_end
-        else:
-            self.scheduled_itinerary.end = new_end
-
+    #
     # def modify_event(self):
     #     """Given a flight, modify its actual or scheduled itinerary
     #         Note: although you could modify other parameters, this will rarely happen
@@ -661,13 +680,14 @@ class Flight(GroundDuty):
         # Is this a new route?
         self.route.save_to_db()
         if not self.event_id:
+            scheduled_begin = self.scheduled_itinerary._begin.replace(tzinfo=None)
             with CursorFromConnectionPool() as cursor:
                 cursor.execute('INSERT INTO public.flights('
                                '            airline_iata_code, route_id, scheduled_begin, '
                                '            scheduled_block, equipment)'
                                'VALUES (%s, %s, %s, %s, %s)'
                                'RETURNING flight_id;',
-                               (self.carrier, self.route.route_id, self.begin,
+                               (self.carrier, self.route.route_id, scheduled_begin,
                                 self.duration.as_timedelta(), self.equipment.airplane_code))
                 self.event_id = cursor.fetchone()[0]
         return self.event_id
@@ -779,6 +799,7 @@ class Flight(GroundDuty):
     #
     @classmethod
     def load_from_db_by_fields(cls, airline_iata_code: str, scheduled_begin: datetime, route: Route):
+        """Load from Data Base. """
         with CursorFromConnectionPool() as cursor:
             cursor.execute('SELECT * FROM public.flights '
                            '    WHERE airline_iata_code = %s '
@@ -794,9 +815,11 @@ class Flight(GroundDuty):
                 equipment = Equipment(flight_data[5])
                 actual_begin = flight_data[6]
                 actual_block = flight_data[7]
-                scheduled_itinerary = Itinerary.from_timedelta(begin=scheduled_begin, a_timedelta=scheduled_block)
+                scheduled_itinerary = Itinerary.from_timedelta(begin=utc.localize(scheduled_begin),
+                                                               a_timedelta=scheduled_block)
                 if actual_begin:
-                    actual_itinerary = Itinerary.from_timedelta(begin=actual_begin, a_timedelta=actual_block)
+                    actual_itinerary = Itinerary.from_timedelta(begin=utc.localize(actual_begin),
+                                                                a_timedelta=actual_block)
                 else:
                     actual_itinerary = None
                 return cls(route=route, scheduled_itinerary=scheduled_itinerary, actual_itinerary=actual_itinerary,
@@ -805,15 +828,21 @@ class Flight(GroundDuty):
     def astimezone(self, timezone='local'):
         """Change event's itineraries to given timezone"""
         if timezone != 'local':
-            self.scheduled_itinerary.astimezone(timezone)
-            self.actual_itinerary.astimezone(timezone)
+            self.scheduled_itinerary.astimezone(begin_timezone=timezone,
+                                                end_timezone=timezone)
+            if self.actual_itinerary:
+                self.actual_itinerary.astimezone(begin_timezone=timezone,
+                                                 end_timezone=timezone)
         else:
-            # TODO : To be implemented
-            pass
+            self.scheduled_itinerary.astimezone(begin_timezone=self.route.origin.timezone,
+                                                end_timezone=self.route.destination.timezone)
+            if self.actual_itinerary:
+                self.actual_itinerary.astimezone(begin_timezone=self.route.origin.timezone,
+                                                 end_timezone=self.route.destination.timezone)
 
     def __str__(self):
         template = """
-        {0.begin:%d%b} {0.name:>6s} {0.route.origin} {0.begin:%H%M} {0.route.destination} {0.end:%H%M}\
+        {0.report:%d%b} {0.name:>6s} {0.route.origin} {0.begin:%H%M} {0.route.destination} {0.end:%H%M}\
         {0.duration:2}        {0.equipment}
         """
         return template.format(self)
@@ -934,6 +963,7 @@ class DutyDay(object):
     #         sundays.append(self.release.date())
     #     return len(sundays)
     #
+
     def save_to_db(self, container_trip):
         with CursorFromConnectionPool() as cursor:
             report = self.report.time()
@@ -998,19 +1028,23 @@ class DutyDay(object):
 
 class Trip(object):
     """
-    A trip_match is a collection of DutyDays
+    A trip_match is a collection of DutyDays for a specific crew_base
     """
 
-    def __init__(self, number: str, check_in: datetime) -> None:
+    def __init__(self, number: str, dated: date, crew_position: str, crew_base: Airport) -> None:
+        """A trip is identified by a 4 digit number and its report date.
+        Trip's report date should be localized in trip's crew_base
+        """
         self.number = number
-        self.duty_days = []
-        self.check_in = check_in
-        self.position = None
+        self.dated = dated
+        self.crew_position = crew_position
+        self.crew_base = crew_base
         self._credits = {}
+        self.duty_days = []
 
-    @property
-    def dated(self):
-        return self.check_in.date()
+    # @property
+    # def dated(self):
+    #     return self.check_in.date()
 
     # @classmethod
     # def create_trip(cls):
@@ -1026,35 +1060,55 @@ class Trip(object):
     #         print()
     #     return trip
     #
-    # @classmethod
-    # def load_by_id(cls, trip_number: str, dated: date):
-    #     with CursorFromConnectionPool() as cursor:
-    #         cursor.execute('SELECT duty_days.flight_id, report, rel, trip_date, dh FROM public.duty_days '
-    #                        'INNER JOIN flights ON duty_days.flight_id = flights.flight_id '
-    #                        'WHERE trip_id = %s AND trip_date = %s '
-    #                        'ORDER BY scheduled_begin ASC;',
-    #                        (int(trip_number), dated))
-    #         trip_data = cursor.fetchall()
-    #         if trip_data:
-    #             trip = cls(number=trip_number, dated=trip_data[0][3])
-    #             for row in trip_data:
-    #                 if row[1]:
-    #                     # Beginning of a DutyDay
-    #                     duty_day = DutyDay()
-    #                 flight = Flight.load_from_db_by_id(flight_id=row[0])
-    #                 if not flight:
-    #                     print("Enter flight as DDMMYYYY AC#### ORG HHMM DES HHMM EQU")
-    #                     flight_data = input("v.gr. 23062018 0403 MEX 0700 JFK 1300 7S8")
-    #                     flight = Flight.from_string(flight_data)
-    #                     flight.save_to_db()
-    #                 if row[4]:
-    #                     # dh boolean indicates this flight is a DH flight
-    #                     flight.dh = True
-    #                 duty_day.append(flight)
-    #                 if row[2]:
-    #                     # Ending of a DutyDay
-    #                     trip.append(duty_day)
-    #             return trip
+
+    @classmethod
+    def load_by_id(cls, trip_number: str, dated):
+        trip = Trip.load_trip_info(trip_number=trip_number, dated=dated)
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT duty_days.flight_id, report, rel, trip_date, dh FROM public.duty_days '
+                           'INNER JOIN flights ON duty_days.flight_id = flights.flight_id '
+                           'WHERE trip_id = %s AND trip_date = %s '
+                           'ORDER BY scheduled_begin ASC;',
+                           (int(trip_number), dated))
+            trip_data = cursor.fetchall()
+            duty_day = None
+            if trip_data:
+                for row in trip_data:
+                    if row[1]:
+                        # Beginning of a DutyDay
+                        duty_day = DutyDay()
+                    flight = Flight.load_from_db_by_id(flight_id=row[0])
+                    if not flight:
+                        print("Enter flight as DDMMYYYY AC#### ORG HHMM DES HHMM EQU")
+                        flight_data = input("v.gr. 23062018 0403 MEX 0700 JFK 1300 7S8")
+                        flight = Flight.from_string(flight_data)
+                        flight.save_to_db()
+                    if row[4]:
+                        # dh boolean indicates this flight is a DH flight
+                        flight.dh = True
+                    duty_day.append(flight)
+                    if row[2]:
+                        # Ending of a DutyDay
+                        trip.append(duty_day)
+        return trip
+
+    @classmethod
+    def load_trip_info(cls, trip_number: str, dated):
+        """
+        Used as a simple read from trip information
+
+        """
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT * '
+                           'FROM trips '
+                           'WHERE number = %s AND dated = %s ',
+                           (int(trip_number), dated))
+            trip_data = cursor.fetchone()
+            if trip_data:
+                trip = cls(number=trip_number, dated=trip_data[1], crew_position=trip_data[6], crew_base=trip_data[7])
+                return trip
+            else:
+                raise data.exceptions.UnstoredTrip
 
     @property
     def report(self):
@@ -1132,8 +1186,8 @@ class Trip(object):
                 duty_day.astimezone(timezone)
         else:
             # TODO : To be implemented
+            print("duty_daty.astimzone('local') needs to be implemented ")
             pass
-
 
     def __str__(self):
         self.compute_credits()
@@ -1171,15 +1225,19 @@ class Trip(object):
     def save_to_db(self):
         """Save to db should be only concerned with saving a trip regardless of
            its previous status, i.e. if it has been stored before or not
+
+           Before storing a Trip it must be converted to utc time
         """
+        self.astimezone(utc)
         with CursorFromConnectionPool() as cursor:
             cursor.execute('SELECT * FROM public.trips '
-                           'WHERE trips.number=%s AND trips.dated=%s', (self.number, self.check_in))
+                           'WHERE trips.number=%s AND trips.dated=%s', (self.number, self.dated))
             trip_data = cursor.fetchone()
 
             if not trip_data:
-                cursor.execute('INSERT INTO public.trips (number, dated, gposition) '
-                               'VALUES (%s, %s, %s);', (self.number, self.check_in, self.position))
+                cursor.execute('INSERT INTO public.trips (number, dated, crew_position, crew_base) '
+                               'VALUES (%s, %s, %s, %s);', (self.number, self.dated, self.crew_position,
+                                                            self.crew_base.iata_code))
         for duty_day in self.duty_days:
             duty_day.save_to_db(self)
     #
