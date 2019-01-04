@@ -199,21 +199,20 @@ class Route(object):
             if route_id:
                 return route_id[0]
 
-    #
-    # @classmethod
-    # def load_from_db_by_id(cls, route_id):
-    #     with CursorFromConnectionPool() as cursor:
-    #         cursor.execute('SELECT name, origin, destination '
-    #                        '    FROM public.routes '
-    #                        '    WHERE route_id=%s',
-    #                        (route_id,))
-    #         route_data = cursor.fetchone()
-    #         origin = Airport(route_data[1])
-    #         destination = Airport(route_data[2])
-    #
-    #         return cls(name=route_data[0], origin=origin,
-    #                    destination=destination, route_id=route_id)
-    #
+    @classmethod
+    def load_by_id(cls, route_id):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT name, origin, destination '
+                           '    FROM public.routes '
+                           '    WHERE route_id=%s',
+                           (route_id,))
+            route_data = cursor.fetchone()
+            origin = Airport(route_data[1])
+            destination = Airport(route_data[2])
+
+            return cls(name=route_data[0], origin=origin,
+                       destination=destination, route_id=route_id)
+
     @classmethod
     def load_from_db_by_fields(cls, name: str, origin: Airport, destination: Airport):
         with CursorFromConnectionPool() as cursor:
@@ -781,22 +780,22 @@ class Flight(GroundDuty):
     #         else:
     #             self.equipment = loaded_flight.equipment
     #
-    # @classmethod
-    # def load_from_db_by_id(cls, flight_id):
-    #     with CursorFromConnectionPool() as cursor:
-    #         cursor.execute('SELECT * FROM public.flights '
-    #                        'INNER JOIN public.routes ON flights.route_id = routes.route_id '
-    #                        'WHERE flights.flight_id=%s', (flight_id,))
-    #         flight_data = cursor.fetchone()
-    #         if flight_data:
-    #             route = Route.load_from_db_by_id(route_id=flight_data[2])
-    #             itinerary = Itinerary.from_timedelta(begin=flight_data[3],
-    #                                                  a_timedelta=flight_data[4])
-    #             equipment = flight_data[5]
-    #             carrier = flight_data[1]
-    #             return cls(route=route, scheduled_itinerary=itinerary, equipment=equipment,
-    #                        carrier=carrier, event_id=flight_id)
-    #
+    @classmethod
+    def load_from_db_by_id(cls, flight_id: int):
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT * FROM public.flights '
+                           'INNER JOIN public.routes ON flights.route_id = routes.route_id '
+                           'WHERE flights.flight_id=%s', (flight_id,))
+            flight_data = cursor.fetchone()
+            if flight_data:
+                route = Route.load_by_id(route_id=flight_data[2])
+                itinerary = Itinerary.from_timedelta(begin=flight_data[3],
+                                                     a_timedelta=flight_data[4])
+                equipment = Equipment(airplane_code=flight_data[5])
+                carrier = flight_data[1]
+                return cls(route=route, scheduled_itinerary=itinerary, equipment=equipment,
+                           carrier=carrier, event_id=flight_id)
+
     @classmethod
     def load_from_db_by_fields(cls, airline_iata_code: str, scheduled_begin: datetime, route: Route):
         """Load from Data Base. """
