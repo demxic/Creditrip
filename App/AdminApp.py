@@ -6,8 +6,11 @@ from App.ObjectBuilders import build_trips
 from FileParsers.filereaders import verify_files, page_number_remover, create_trips_as_dict, number_of_trips_in_pbs_file
 from data.database import Database
 
+# TODO : All objects are stored and retrieved in "America/Mexico_City" timezone
+from models.scheduleClasses import Trip
+
 files = []
-data_folder = Path("C:/Users/Xico/Google Drive/Sobrecargo/PBS/2018 PBS/201810 PBS")
+data_folder = Path("C:/Users/Xico/Google Drive/Sobrecargo/PBS/2018 PBS/201812 PBS")
 pickled_unsaved_trips_file = 'pickled_unsaved_trips'
 Database.initialise(database="orgutrip", user="postgres", password="0933", host="localhost")
 
@@ -70,6 +73,7 @@ class Menu:
             # 1. Read in and clean the txt.file
             print("\n Parsing file : {}".format(file))
             position = input("Is this a PBS file for EJE or SOB? ").upper()
+            crew_base = 'MEX'
             cleaned_content = page_number_remover(file)
             total_trips_in_pbs_file = number_of_trips_in_pbs_file(cleaned_content)
             trips_as_dict = create_trips_as_dict(trips_as_strings=cleaned_content)
@@ -77,7 +81,7 @@ class Menu:
                 print("Warning! {} trips should be processed but only {} were found".format(
                     total_trips_in_pbs_file, len(trips_as_dict)
                 ))
-            pending_trips = build_trips(trips_as_dict, position, postpone=True)
+            pending_trips = build_trips(trips_as_dict, position, crew_base=crew_base)
             print("{} trips contained in PBS pdf file".format(total_trips_in_pbs_file))
             print("{} trips were not built!".format(len(pending_trips)))
             unstored_trips.extend(pending_trips)
@@ -88,16 +92,21 @@ class Menu:
     def figure_out_unsaved_trips(self):
         infile = open(data_folder / pickled_unsaved_trips_file, 'rb')
         unstored_trips = pickle.load(infile)
-        print("Building {} unsaved_trips :".format(len(unstored_trips)))
+        print("Listing {} unsaved_trips :".format(len(unstored_trips)))
+        for trip_dict in unstored_trips:
+            print("Trip {}/{} unsaved!".format(trip_dict['number'], trip_dict['dated']))
         # 1. Let us go over all trips again, some might now be discarded
-        irreparable_trips = build_trips(unstored_trips, None, postpone=False)
-        print(" {} unsaved_trips".format(len(irreparable_trips)))
-        outfile = open(data_folder / pickled_unsaved_trips_file, 'wb')
-        pickle.dump(irreparable_trips, outfile)
-        outfile.close()
+        # irreparable_trips = build_trips(unstored_trips, None, postpone=False)
+        # print(" {} unsaved_trips".format(len(irreparable_trips)))
+        # outfile = open(data_folder / pickled_unsaved_trips_file, 'wb')
+        # pickle.dump(irreparable_trips, outfile)
+        # outfile.close()
 
     def search_for_trip(self):
-        pass
+        entered = input("Enter trip/dated to search for ####/YYYY-MM-DD ")
+        trip_id, trip_dated = entered.split('/')
+        trip = Trip.load_by_id(trip_id, trip_dated)
+        print(trip)
 
     def read_reserve_file(self):
         pass
