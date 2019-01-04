@@ -56,9 +56,9 @@ class Menu:
 
         """
         global files, data_folder
-        file_names = ["201810 - PBS vuelos SOB A.txt", 
-                      "201810 - PBS vuelos SOB B.txt",
-                      "201810 - PBS vuelos EJE.txt"]
+        file_names = ["201812 - PBS vuelos SOB A.txt",
+                      "201812 - PBS vuelos SOB B.txt",
+                      "201812 - PBS vuelos EJE.txt"]
         files = verify_files(data_folder, file_names)
 
     def parse_trips_from_files(self):
