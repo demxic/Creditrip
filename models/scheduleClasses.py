@@ -799,12 +799,13 @@ class Flight(GroundDuty):
     @classmethod
     def load_from_db_by_fields(cls, airline_iata_code: str, scheduled_begin: datetime, route: Route):
         """Load from Data Base. """
+        scheduled_begin = scheduled_begin.replace(tzinfo=None)
         with CursorFromConnectionPool() as cursor:
             cursor.execute('SELECT * FROM public.flights '
                            '    WHERE airline_iata_code = %s '
                            '      AND route_id=%s'
-                           '      AND scheduled_begin::date=%s',
-                           (airline_iata_code, route.route_id, scheduled_begin.date()))
+                           '      AND scheduled_begin=%s;',
+                           (airline_iata_code, route.route_id, scheduled_begin))
             flight_data = cursor.fetchone()
             if flight_data:
                 flight_id = flight_data[0]
