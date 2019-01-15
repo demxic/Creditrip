@@ -50,12 +50,12 @@ def build_flight(dt_tracker: DateTimeTracker, flight_dict: dict) -> Flight:
     begin = dt_tracker.build_end_dt(time_string=flight_dict['begin'],
                                     destination_timezone=origin.timezone)
 
-    flight = Flight.load_from_db_by_fields(airline_iata_code=carrier_code,
+    flight_list = Flight.load_from_db_by_fields(airline_iata_code=carrier_code,
                                            scheduled_begin=begin.astimezone(utc),
                                            route=route)
 
     # 4. Create and store flight if not found in the DB
-    if not flight:
+    if not flight_list:
         # 4.a Found a regular flight, create it
         end = dt_tracker.build_end_dt(time_string=flight_dict['end'],
                                       destination_timezone=destination.timezone)
@@ -67,8 +67,15 @@ def build_flight(dt_tracker: DateTimeTracker, flight_dict: dict) -> Flight:
                         equipment=equipment, carrier=carrier_code)
         flight.save_to_db()
     else:
-        flight.astimezone(timezone='local')
-        dt_tracker.dt = flight.end
+        if len(flight_list) > 1:
+            print("Choose the right flight for this trip: ")
+            for index, flight in enumerate(flight_list):
+                print(index, flight.astimezone('local'))
+            flight = flight_list[input("option: ")]
+        else:
+            flight = flight_list[0]
+            flight.astimezone(timezone='local')
+            dt_tracker.dt = flight.end
 
         # dt_tracker.astimezone(destination.timezone)
 

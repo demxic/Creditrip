@@ -799,31 +799,35 @@ class Flight(GroundDuty):
     @classmethod
     def load_from_db_by_fields(cls, airline_iata_code: str, scheduled_begin: datetime, route: Route):
         """Load from Data Base. """
-        scheduled_begin = scheduled_begin.replace(tzinfo=None)
+        built_flights = None
         with CursorFromConnectionPool() as cursor:
             cursor.execute('SELECT * FROM public.flights '
                            '    WHERE airline_iata_code = %s '
                            '      AND route_id=%s'
-                           '      AND scheduled_begin=%s;',
-                           (airline_iata_code, route.route_id, scheduled_begin))
-            flight_data = cursor.fetchone()
-            if flight_data:
-                flight_id = flight_data[0]
-                carrier_code = flight_data[1]
-                scheduled_begin = flight_data[3]
-                scheduled_block = flight_data[4]
-                equipment = Equipment(flight_data[5])
-                actual_begin = flight_data[6]
-                actual_block = flight_data[7]
-                scheduled_itinerary = Itinerary.from_timedelta(begin=utc.localize(scheduled_begin),
-                                                               a_timedelta=scheduled_block)
-                if actual_begin:
-                    actual_itinerary = Itinerary.from_timedelta(begin=utc.localize(actual_begin),
-                                                                a_timedelta=actual_block)
-                else:
-                    actual_itinerary = None
-                return cls(route=route, scheduled_itinerary=scheduled_itinerary, actual_itinerary=actual_itinerary,
-                           equipment=equipment, carrier=carrier_code, event_id=flight_id)
+                           '      AND scheduled_begin::date=%s;',
+                           (airline_iata_code, route.route_id, scheduled_begin.date()))
+            flights_data = cursor.fetchall()
+            if flights_data:
+                built_flights = []
+                for flight_data in flights_data:
+                    flight_id = flight_data[0]
+                    carrier_code = flight_data[1]
+                    scheduled_begin = flight_data[3]
+                    scheduled_block = flight_data[4]
+                    equipment = Equipment(flight_data[5])
+                    actual_begin = flight_data[6]
+                    actual_block = flight_data[7]
+                    scheduled_itinerary = Itinerary.from_timedelta(begin=utc.localize(scheduled_begin),
+                                                                   a_timedelta=scheduled_block)
+                    if actual_begin:
+                        actual_itinerary = Itinerary.from_timedelta(begin=utc.localize(actual_begin),
+                                                                    a_timedelta=actual_block)
+                    else:
+                        actual_itinerary = None
+                    built_flights.append(
+                        cls(route=route, scheduled_itinerary=scheduled_itinerary, actual_itinerary=actual_itinerary,
+                            equipment=equipment, carrier=carrier_code, event_id=flight_id))
+        return built_flights
 
     def astimezone(self, timezone='local'):
         """Change event's itineraries to given timezone"""
