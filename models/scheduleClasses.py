@@ -4,7 +4,8 @@ import psycopg2
 import pytz
 
 from data.database import CursorFromConnectionPool
-import data.exceptions
+#import data.exceptions
+from data.exceptions import MissingAirport, UnstoredTrip
 from models.timeClasses import Duration
 
 utc = pytz.utc
@@ -66,7 +67,7 @@ class Airport(object):
                 cursor.execute('SELECT * FROM airports WHERE iata_code=%s;', (iata_code,))
                 airport_data = cursor.fetchone()
                 if not airport_data:
-                    raise data.exceptions.MissingAirport(iata_code)
+                    raise MissingAirport(iata_code)
                 timezone = pytz.timezone(airport_data[1] + '/' + airport_data[2])
                 airport = cls(iata_code=airport_data[0], timezone=timezone, viaticum=airport_data[3])
                 cls._airports[iata_code] = airport
@@ -74,6 +75,23 @@ class Airport(object):
 
     def __str__(self):
         return "{}".format(self.iata_code)
+
+
+class CrewMember(object):
+    """Defines a CrewMember"""
+
+    def __init__(self, crew_member_id: int = None, name: str = None, pos: str = None, group: str = None,
+                 base: Airport = None, seniority: int = None):
+        self.crew_member_id = crew_member_id
+        self.name = name
+        self.pos = pos
+        self.group = group
+        self.base = Airport(base) if isinstance(base, str) else base
+        self.seniority = seniority
+        self.line = None
+
+    def __str__(self):
+        return "{0:3s} {1:6s}-{2:12s}".format(self.pos, self.crew_member_id, self.name)
 
 
 class Equipment(object):
@@ -1112,7 +1130,7 @@ class Trip(object):
                 trip = cls(number=trip_number, dated=trip_data[1], crew_position=trip_data[6], crew_base=trip_data[7])
                 return trip
             else:
-                raise data.exceptions.UnstoredTrip
+                raise UnstoredTrip
 
     @property
     def report(self):
