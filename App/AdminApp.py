@@ -10,7 +10,7 @@ from data.database import Database
 from models.scheduleClasses import Trip
 
 files = []
-data_folder = Path("C:/Users/Xico/Google Drive/Sobrecargo/PBS/2018 PBS/201812 PBS")
+data_folder = Path("C:/Users/Xico/Google Drive/Sobrecargo/PBS/2019 PBS/201901 PBS")
 pickled_unsaved_trips_file = 'pickled_unsaved_trips'
 Database.initialise(database="orgutrip", user="postgres", password="0933", host="localhost")
 
@@ -56,9 +56,9 @@ class Menu:
 
         """
         global files, data_folder
-        file_names = ["201812 - PBS vuelos SOB A.txt",
-                      "201812 - PBS vuelos SOB B.txt",
-                      "201812 - PBS vuelos EJE.txt"]
+        file_names = ["201901 - PBS vuelos SOB A.txt",
+                      "201901 - PBS vuelos SOB B.txt",
+                      "201901 - PBS vuelos EJE.txt"]
         files = verify_files(data_folder, file_names)
 
     def parse_trips_from_files(self):

@@ -67,6 +67,7 @@ def build_flight(dt_tracker: DateTimeTracker, flight_dict: dict) -> Flight:
                         equipment=equipment, carrier=carrier_code)
         flight.save_to_db()
     else:
+        # TODO : This is not yet working
         if len(flight_list) > 1:
             print("Choose the right flight for this trip: ")
             for index, flight in enumerate(flight_list):
