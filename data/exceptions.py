@@ -5,6 +5,12 @@ class MissingAirport(Exception):
         self.airport_iata_code = missing_airport
 
 
+class MissingRoute(Exception):
+    def __init__(self, route):
+        super().__init__("{} route not stored in the DB".format(route))
+        self.route = route
+
+
 class DutyDayBlockError(Exception):
 
     def __init__(self, duty_day_dict: dict, duty_day) -> None:
