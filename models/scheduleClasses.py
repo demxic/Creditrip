@@ -4,8 +4,7 @@ import psycopg2
 import pytz
 
 from data.database import CursorFromConnectionPool
-#import data.exceptions
-from data.exceptions import MissingAirport, UnstoredTrip
+from data.exceptions import MissingAirport, UnstoredTrip, MissingRoute
 from models.timeClasses import Duration
 
 utc = pytz.utc
@@ -84,14 +83,14 @@ class CrewMember(object):
                  base: Airport = None, seniority: int = None):
         self.crew_member_id = crew_member_id
         self.name = name
-        self.pos = pos
+        self.position = pos
         self.group = group
-        self.base = Airport(base) if isinstance(base, str) else base
+        self.base = base
         self.seniority = seniority
         self.line = None
 
     def __str__(self):
-        return "{0:3s} {1:6s}-{2:12s}".format(self.pos, self.crew_member_id, self.name)
+        return "{0:3s} {1:6s}-{2:12s}".format(self.position, self.crew_member_id, self.name)
 
 
 class Equipment(object):
@@ -231,6 +230,25 @@ class Route(object):
             return cls(name=route_data[0], origin=origin,
                        destination=destination, route_id=route_id)
 
+
+    @classmethod
+    def load_from_db_by_fields(cls, name: str, origin: Airport, destination: Airport):
+        route_key = name + origin.iata_code + destination.iata_code
+        route = cls._routes.get(route_key)
+        if not route:
+            with CursorFromConnectionPool() as cursor:
+                cursor.execute('SELECT route_id FROM public.routes '
+                               '    WHERE name=%s'
+                               '      AND origin=%s'
+                               '      AND destination=%s',
+                               (name, origin.iata_code, destination.iata_code))
+                route_id = cursor.fetchone()
+                if route_id:
+                    route = cls(route_id=route_id[0], name=name, origin=origin, destination=destination)
+                else:
+                    raise MissingRoute
+        return route
+
     @classmethod
     def load_from_db_by_fields(cls, name: str, origin: Airport, destination: Airport):
         with CursorFromConnectionPool() as cursor:
@@ -262,6 +280,25 @@ class Itinerary(object):
     def from_timedelta(cls, begin: datetime, a_timedelta: timedelta):
         """Returns an Itinerary from a given begin datetime and the timedelta duration of it"""
         end = begin + a_timedelta
+        return cls(begin, end)
+
+    @classmethod
+    def from_date_and_strings(cls, date: datetime.date, begin: str, end: str, timezone):
+        """date should  be a datetime.date object
+        begin and end should have a %H%M (2345) format"""
+        begin = '0000' if begin == '2400' else begin
+        end = '0000' if end == '2400' else end
+        formatting = '%H%M'
+        begin_string = datetime.strptime(begin, formatting).time()
+        begin = datetime.combine(date, begin_string)
+        end_string = datetime.strptime(end, formatting).time()
+        end = datetime.combine(date, end_string)
+
+        if end < begin:
+            end += timedelta(days=1)
+        begin = timezone.localize(begin)
+        end = timezone.localize(end)
+        itinerary = cls(begin=begin.astimezone(utc), end=end.astimezone(utc))
         return cls(begin, end)
 
     @property
@@ -682,6 +719,10 @@ class Flight(GroundDuty):
         else:
             return self.actual_itinerary.end + timedelta(minutes=30)
 
+    def __eq__(self, other):
+        return self.carrier == other.carrier and self.scheduled_itinerary == other.scheduled_itinerary and\
+               self.duration == other.duration and self.equipment == other.equipment
+
     def compute_credits(self, creditator=None):
         if self.dh:
             dh = self.duration
@@ -693,17 +734,86 @@ class Flight(GroundDuty):
 
     # TODO : Modify to save a flight with all its known values
     # TODO : ALL save_to_db() methods should be first check that event is not stored before creating it
+
+    def is_stored(self):
+        """Look for self in db and return a boolean if flight found or an exception if many flights
+        have the same or similar fields"""
+        retrieved_flights = self.retrieve_matching_flights()
+        if retrieved_flights and len(retrieved_flights) == 1:
+            retrieved_flight = retrieved_flights[0]
+            self.astimezone(utc)
+            if retrieved_flight == self:
+                self.event_id = retrieved_flight.event_id
+                return True
+        elif retrieved_flights:
+            for retrieved_flight in retrieved_flights:
+                if retrieved_flight == self:
+                    self.event_id = retrieved_flight.event_id
+                    return True
+            else:
+                raise Exception("Something is wrong with this flight: {} ".format(self))
+        return False
+
+    def retrieve_matching_flights(self):
+        """Load from Data Base. """
+        built_flights = None
+        scheduled_begin = self.scheduled_itinerary.begin.astimezone(tz=utc).replace(tzinfo=None)
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('SELECT * FROM public.flights '
+                           '    WHERE airline_iata_code = %s '
+                           '      AND route_id=%s'
+                           '      AND scheduled_begin::date=%s;',
+                           (self.carrier, self.route.route_id, scheduled_begin.date()))
+            flights_data = cursor.fetchall()
+            if flights_data:
+                built_flights = []
+                for flight_data in flights_data:
+                    flight_id = flight_data[0]
+                    carrier_code = flight_data[1]
+                    scheduled_begin = flight_data[3]
+                    scheduled_block = flight_data[4]
+                    equipment = Equipment(flight_data[5])
+                    actual_begin = flight_data[6]
+                    actual_block = flight_data[7]
+                    scheduled_itinerary = Itinerary.from_timedelta(begin=utc.localize(scheduled_begin),
+                                                                   a_timedelta=scheduled_block)
+                    if actual_begin:
+                        actual_itinerary = Itinerary.from_timedelta(begin=utc.localize(actual_begin),
+                                                                    a_timedelta=actual_block)
+                    else:
+                        actual_itinerary = None
+                    built_flights.append(Flight(route=self.route, scheduled_itinerary=scheduled_itinerary,
+                                                actual_itinerary=actual_itinerary, equipment=equipment,
+                                                carrier=carrier_code, event_id=flight_id))
+        return built_flights
+
     def save_to_db(self) -> int:
+        scheduled_begin = self.scheduled_itinerary.begin.astimezone(tz=utc).replace(tzinfo=None)
+        with CursorFromConnectionPool() as cursor:
+            cursor.execute('INSERT INTO public.flights('
+                           '            airline_iata_code, route_id, scheduled_begin, '
+                           '            scheduled_block, equipment)'
+                           'VALUES (%s, %s, %s, %s, %s)'
+                           'RETURNING flight_id;',
+                           (self.carrier, self.route.route_id, scheduled_begin,
+                            self.duration.as_timedelta(), self.equipment.airplane_code))
+            self.event_id = cursor.fetchone()[0]
+        return self.event_id
+
+    def merge_to_db(self) -> int:
         # Is this a new route?
-        self.route.save_to_db()
         if not self.event_id:
+            stored_flight = self.load_from_db_by_fields(airline_iata_code=self.carrier,
+                                                        scheduled_begin=self.scheduled_itinerary,
+                                                        route=self.route)
             scheduled_begin = self.scheduled_itinerary._begin.replace(tzinfo=None)
             with CursorFromConnectionPool() as cursor:
                 cursor.execute('INSERT INTO public.flights('
                                '            airline_iata_code, route_id, scheduled_begin, '
                                '            scheduled_block, equipment)'
-                               'VALUES (%s, %s, %s, %s, %s)'
-                               'RETURNING flight_id;',
+                               'VALUES (%s, %s, %s, %s, %s) '
+                               'ON CONFLICT ON CONSTRAINT unique_flight '
+                               'DO RETURN flight_id;',
                                (self.carrier, self.route.route_id, scheduled_begin,
                                 self.duration.as_timedelta(), self.equipment.airplane_code))
                 self.event_id = cursor.fetchone()[0]
@@ -968,15 +1078,15 @@ class DutyDay(object):
         """Add a duty, one by one  to this DutyDay"""
         self.events.append(current_duty)
 
-    # def merge(self, other):
-    #     if self.report <= other.report:
-    #         all_events = self.events + other.events
-    #     else:
-    #         all_events = other.events + self.events
-    #     self.events = []
-    #     for event in all_events:
-    #         self.events.append(event)
-    #
+    def merge(self, other):
+        if self.report <= other.report:
+            all_events = self.events + other.events
+        else:
+            all_events = other.events + self.events
+        self.events = []
+        for event in all_events:
+            self.events.append(event)
+
     # def how_many_sundays(self):
     #     sundays = []
     #     if self.report.isoweekday() == '7':
@@ -988,29 +1098,28 @@ class DutyDay(object):
 
     def save_to_db(self, container_trip):
         with CursorFromConnectionPool() as cursor:
-            report = self.report.time()
+            report = self.report.astimezone(utc).replace(tzinfo=None)
             for flight in self.events:
                 if not flight.event_id:
                     # First store flight in DB
                     # TODO : Before saving, check that flight does not already exist
                     flight.save_to_db()
-                else:
-                    cursor.execute('SELECT duty_day_id FROM public.duty_days '
-                                   'WHERE flight_id=%s AND trip_id=%s AND trip_date=%s',
-                                   (flight.event_id, container_trip.number, container_trip.dated))
-                    flight_to_trip_id = cursor.fetchone()
-                    if not flight_to_trip_id:
-                        cursor.execute('INSERT INTO public.duty_days('
-                                       '            flight_id, trip_id, trip_date, '
-                                       '            report, dh)'
-                                       'VALUES (%s, %s, %s, %s, %s)'
-                                       'RETURNING duty_day_id;',
-                                       (flight.event_id, container_trip.number, container_trip.dated,
-                                        report, flight.dh))
-                        flight_to_trip_id = cursor.fetchone()[0]
+                cursor.execute('SELECT duty_day_id FROM public.duty_days '
+                               'WHERE flight_id=%s AND trip_id=%s AND trip_date=%s',
+                               (flight.event_id, container_trip.number, container_trip.dated))
+                flight_to_trip_id = cursor.fetchone()
+                if not flight_to_trip_id:
+                    cursor.execute('INSERT INTO public.duty_days('
+                                   '            flight_id, trip_id, trip_date, '
+                                   '            report, dh)'
+                                   'VALUES (%s, %s, %s, %s, %s)'
+                                   'RETURNING duty_day_id;',
+                                   (flight.event_id, container_trip.number, container_trip.dated,
+                                    report, flight.dh))
+                    flight_to_trip_id = cursor.fetchone()[0]
                 report = None
         with CursorFromConnectionPool() as cursor:
-            release = self.release.time()
+            release = self.release.astimezone(utc).replace(tzinfo=None)
             cursor.execute('UPDATE public.duty_days '
                            'SET rel = %s '
                            'WHERE duty_day_id = %s;',
@@ -1188,18 +1297,18 @@ class Trip(object):
     #     sundays = filter(lambda date: date.isoweekday() == 7, self.get_elapsed_dates())
     #     return len(list(sundays))
     #
-    # def __delitem__(self, key):
-    #     del self.duty_days[key]
-    #
-    # def __getitem__(self, key):
-    #     try:
-    #         item = self.duty_days[key]
-    #     except:
-    #         item = None
-    #     return item
-    #
-    # def __setitem__(self, key, value):
-    #     self.duty_days[key] = value
+    def __delitem__(self, key):
+        del self.duty_days[key]
+
+    def __getitem__(self, key):
+        try:
+            item = self.duty_days[key]
+        except:
+            item = None
+        return item
+
+    def __setitem__(self, key, value):
+        self.duty_days[key] = value
 
     def astimezone(self, timezone='local'):
         """Change event's itineraries to given timezone"""
@@ -1250,7 +1359,7 @@ class Trip(object):
 
            Before storing a Trip it must be converted to utc time
         """
-        self.astimezone(utc)
+        # self.astimezone(utc)
         with CursorFromConnectionPool() as cursor:
             cursor.execute('SELECT * FROM public.trips '
                            'WHERE trips.number=%s AND trips.dated=%s', (self.number, self.dated))
@@ -1276,3 +1385,69 @@ class Trip(object):
     #     for duty_day in self.duty_days:
     #         for event in duty_day.events:
     #             event.update_from_database()
+
+
+class Line(object):
+    """ Represents an ordered sequence of events for a given month"""
+
+    def __init__(self, month, year, crew_member=None):
+        self.duties = []
+        self.month = month
+        self.year = year
+        self.crew_member = crew_member
+        self._credits = {}
+
+    def append(self, duty):
+        self.duties.append(duty)
+
+    def compute_credits(self, creditator=None):
+        self._credits['block'] = Duration(0)
+        self._credits['dh'] = Duration(0)
+        self._credits['daily'] = Duration(0)
+        for duty in self.duties:
+            try:
+                cr = duty.compute_credits()
+                self._credits['block'] += duty._credits['block']
+                self._credits['dh'] += duty._credits['dh']
+                self._credits['daily'] += duty._credits['daily']
+            except AttributeError:
+                "Object has no compute_credits() method"
+                pass
+
+        if creditator:
+            credits_list = creditator.credits_from_line(self)
+
+        return credits_list
+
+    def return_duty(self, dutyId):
+        """Return the corresponding duty for the given dutyId"""
+        return (duty for duty in self.duties if duty.id == dutyId)
+
+    def __delitem__(self, key):
+        del self.duties[key]
+
+    def __getitem__(self, key):
+        try:
+            item = self.duties[key]
+        except:
+            item = None
+        return item
+
+    def __setitem__(self, key, value):
+        self.duties[key] = value
+
+    def __iter__(self):
+        return iter(self.duties)
+
+    def return_duty_days(self):
+        """Turn all dutydays to a list called dd """
+        dd = []
+        for element in self.duties:
+            if isinstance(element, Trip):
+                dd.extend(element.duty_days)
+            elif isinstance(element, DutyDay):
+                dd.append(element)
+        return dd
+
+    def __str__(self):
+        return "\n".join(str(d) for d in self.duties)
