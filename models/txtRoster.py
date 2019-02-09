@@ -6,8 +6,8 @@ Created on 29/12/2015
 A bidline reader should return a bidline
 
 """
-import operator
-from models.scheduleClasses import Itinerary
+from data import rules
+from models.scheduleClasses import Itinerary, Airport, Line, DutyDay, Route, Flight, Trip, Event, GroundDuty
 from data.regex import roster_data_RE, crewstats_no_type, carryInRE, non_trip_RE, roster_trip_RE, airItineraryRE
 
 
@@ -86,7 +86,6 @@ class RosterReader(object):
         return index
 
 
-
 class Liner(object):
     """´Turns a Roster Reader into a line"""
 
@@ -99,7 +98,7 @@ class Liner(object):
         self.date_tracker = date_tracker
         self.roster_days = roster_days
         self.line_type = line_type
-        self.base = Airport(base_iata_code)
+        self.base = Airport.load_from_db_by_iata_code(base_iata_code)
         month = self.date_tracker.month
         year = self.date_tracker.year
         self.line = Line(month, year)
@@ -152,8 +151,8 @@ class Liner(object):
         for flight in roster_day['flights']:
             itinerary = Itinerary.from_date_and_strings(self.date_tracker.dated,
                                                         flight['begin'], flight['end'])
-            origin = Airport(flight['origin'])
-            destination = Airport(flight['destination'])
+            origin = Airport.load_from_db_by_iata_code(flight['origin'])
+            destination = Airport.load_from_db_by_iata_code(flight['destination'])
             route = get_route(name=flight['name'][-4:], origin=origin,
                               destination=destination)
             if self.line_type == 'scheduled':
@@ -186,5 +185,111 @@ class Liner(object):
             # print("{} {} ".format(self.date_tracker.dated, rD['name']))
             # begin, end = input("Begin and END time as HHMM HHMM ").split()
         itinerary = Itinerary.from_date_and_strings(self.date_tracker.dated, begin, end)
+
+        return itinerary
+
+
+class Liner(object):
+    """´Turns a Roster Reader into a line"""
+
+    # TODO: Combining two one day-spaced duties into a single Duty Day.
+
+    def __init__(self, date_tracker, roster_days, crew_member, line_type='scheduled'):
+        """Mandatory arguments"""
+        print("wihtin Liner datetracker ", date_tracker)
+        self.date_tracker = date_tracker
+        self.roster_days = roster_days
+        self.line_type = line_type
+        self.crew_member = crew_member
+        month = self.date_tracker.month
+        year = self.date_tracker.year
+        self.line = Line(month, year)
+        self.unrecognized_events = []
+
+    def build_line(self):
+        """Returns a Line object containing all data read from the text file
+        but now turned into corresponding objects"""
+        trip_number_tracker = '0000'
+        for roster_day in self.roster_days:
+            self.date_tracker.replace(roster_day['day'])
+            if len(roster_day['name']) == 4:
+                # Found trip_match information
+                duty_day = self.from_flight_itinerary(roster_day)
+                trip_number = roster_day['name']
+                if trip_number != trip_number_tracker:
+                    # A new trip_match has been found, let's create it
+                    trip = Trip(number=trip_number, dated=self.date_tracker.dated,
+                                crew_position=self.crew_member.position, crew_base=self.crew_member.base)
+                    trip_number_tracker = trip.number
+                    trip.append(duty_day)
+                    self.line.append(trip)
+                else:
+                    # Still the same trip_match
+                    trip = self.line.duties[-1]
+                    previous_duty_day = trip[-1]
+                    rest = duty_day.report - previous_duty_day.release
+                    # Checking for events worked in different calendar days but belonging to the same duty day
+                    if rest.total_seconds() <= rules.MINIMUM_REST_TIME:
+                        trip.pop()
+                        duty_day.merge(previous_duty_day)
+                    trip.append(duty_day)
+                    self.line.duties[-1] = trip
+
+            elif roster_day['name'] in ['VA', 'X', 'XX', 'TO']:
+                roster_day['begin'] = '0001'
+                roster_day['end'] = '2359'
+                itinerary = self.build_itinerary(roster_day)
+                route = Route.load_from_db_by_fields(roster_day['name'], origin=self.crew_member.base,
+                                                     destination=self.crew_member.base)
+                marker = Event(route=route, scheduled_itinerary=itinerary)
+                self.line.append(marker)
+            elif len(roster_day['name']) == 2 and roster_day['name'] != 'RZ':
+                duty_day = self.from_ground_itinerary(roster_day)
+                self.line.append(duty_day)
+            else:
+                self.unrecognized_events.append(roster_day['name'])
+
+    def from_flight_itinerary(self, roster_day):
+        """Given a group of duties, add them to a DutyDay"""
+        duty_day = DutyDay()
+        for flight in roster_day['flights']:
+            itinerary = Itinerary.from_date_and_strings(date=self.date_tracker.dated,
+                                                        begin=flight['begin'], end=flight['end'],
+                                                        timezone=self.crew_member.base.timezone)
+            origin = Airport.load_from_db_by_iata_code(flight['origin'])
+            destination = Airport.load_from_db_by_iata_code(flight['destination'])
+            route = Route.load_from_db_by_fields(name=flight['name'][-4:], origin=origin,
+                                                 destination=destination)
+            if self.line_type == 'scheduled':
+                f = Flight(route=route, scheduled_itinerary=itinerary)
+            else:
+                f = Flight(route=route, actual_itinerary=itinerary)
+            f.dh = not flight['name'].isnumeric()
+            duty_day.append(f)
+        return duty_day
+
+    def from_ground_itinerary(self, roster_day):
+        """Given a ground duty, add it to a DutyDay"""
+        duty_day = DutyDay()
+        itinerary = self.build_itinerary(roster_day)
+        route = Route.load_from_db_by_fields(name=roster_day['name'], origin=self.crew_member.base,
+                                             destination=self.crew_member.base)
+        i = GroundDuty(route=route, scheduled_itinerary=itinerary)
+        duty_day.append(i)
+        return duty_day
+
+    def build_itinerary(self, roster_day: dict) -> Itinerary:
+        """return marker data, marker's don't have credits """
+        try:
+            begin = roster_day['begin']
+            end = roster_day['end']
+        except KeyError:
+            begin = '0001'
+            end = '2359'
+            # print("Unknown begin and end times for duty")
+            # print("{} {} ".format(self.date_tracker.dated, rD['name']))
+            # begin, end = input("Begin and END time as HHMM HHMM ").split()
+        itinerary = Itinerary.from_date_and_strings(date=self.date_tracker.dated, begin=begin, end=end,
+                                                    timezone=self.crew_member.base.timezone)
 
         return itinerary
