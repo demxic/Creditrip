@@ -1,4 +1,5 @@
-from datetime import timedelta, datetime, time
+from datetime import timedelta, datetime, time, date
+import dateutil.relativedelta
 
 
 class Duration(object):
@@ -53,6 +54,9 @@ class Duration(object):
             hm = "{0:0>2d}:{1:0>2d}".format(hours, minutes)
 
         return hm
+
+    def __eq__(self, other):
+        return self.minutes == other.minutes
 
     def __add__(self, other):
         return Duration(self.minutes + other.minutes)
@@ -161,54 +165,6 @@ class DateTimeTracker(object):
             self.dt = preliminary_end
         return self.dt
 
-    # def build_end_dt(self, time_string: str, destination_timezone, end_date: datetime.date=None):
-    #     """Given an end_time and a timezone for it...
-    #
-    #     build and return the corresponding aware end_datetime.
-    #     Update DateTimeTracker correspondingly afterwards
-    #     """
-    #     if self.dt.tzinfo.zone != destination_timezone.zone:
-    #         begin_as_destination_time_zone = self.dt.astimezone(destination_timezone)
-    #     else:
-    #         begin_as_destination_time_zone = self.dt
-    #     end_hour = int(time_string[0:2])
-    #     end_minutes = int(time_string[2:4])
-    #     if not end_date:
-    #         end_date = begin_as_destination_time_zone.date()
-    #     end_time = time(hour=end_hour, minute=end_minutes)
-    #     preliminary_end = destination_timezone.localize(datetime.combine(end_date, end_time))
-    #     if preliminary_end < begin_as_destination_time_zone:
-    #         end_date = (preliminary_end + timedelta(days=1)).date()
-    #         end_time = time(hour=end_hour, minute=end_minutes)
-    #         end_datetime = datetime.combine(end_date, end_time)
-    #         self.dt = destination_timezone.localize(end_datetime)
-    #         # end = destination_timezone.localize(end_datetime)
-    #     else:
-    #         # end = preliminary_end
-    #         self.dt = preliminary_end
-    #     return self.dt
-
-    # def forward(self, time_string: str) -> timedelta:
-    #     """Moves HH hours and MM minutes forward in time.
-    #     time_string may be of type HH:MM or HHMM
-    #     """
-    #     time_string = time_string.replace(':', '')
-    #     hh = int(time_string[:-2])
-    #     mm = int(time_string[-2:])
-    #     td: timedelta = timedelta(hours=hh, minutes=mm)
-    #     self.dt += td
-    #     return td
-    #
-    # def backward(self, time_string: str) -> timedelta:
-    #     """Moves HH hours and MM minutes backward in time.
-    #     time_string may be of type HH:MM or HHMM
-    #     """
-    #     hh = int(time_string[:2])
-    #     mm = int(time_string[-2:])
-    #     td: timedelta = timedelta(hours=hh, minutes=mm)
-    #     self.dt -= td
-    #     return td
-
     def astimezone(self, timezone):
         self.dt = self.dt.astimezone(timezone)
 
@@ -218,3 +174,40 @@ class DateTimeTracker(object):
 
     def __str__(self):
         return str(self.dt)
+
+
+class DateTracker(object):
+    """Used to track whenever there is a change in month"""
+
+    def __init__(self, year, month, carry_in=False):
+        months_sp = {'ENE': 1, 'FEB': 2, 'MAR': 3, 'ABR': 4, 'MAY': 5, 'JUN': 6,
+                     'JUL': 7, 'AGO': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DIC': 12}
+        three_letter_month = month[0:3]
+        self.year = year
+        self.month = months_sp[three_letter_month]
+        self.dated = date(self.year, self.month, 1)
+        if carry_in:
+            self.backwards()
+            # print("There is a carry in so datetracker now points to: ")
+            # print(self)
+
+    def backwards(self):
+        """Moves one day back in time"""
+        self.dated = self.dated + dateutil.relativedelta.relativedelta(months=-1)
+
+    def replace(self, day):
+        """Change self.date's day to given value, resulting date must
+           always be forward in time"""
+        day = int(day)
+        if day < self.dated.day:
+            # If condition is met, move one month forward
+            self.dated = self.dated.replace(day=day)
+            self.dated = self.dated + dateutil.relativedelta.relativedelta(months=+1)
+        else:
+            # Still in the same month
+            # print("self.dated {} = ".format(self.dated))
+            # print("self.dated.replace(day = day)      day = {}".format(day))
+            self.dated = self.dated.replace(day=day)
+
+    def __str__(self):
+        return "Pointing to {0:%d-%b-%Y}".format(self.dated)
