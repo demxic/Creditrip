@@ -6,7 +6,6 @@ from App.ObjectBuilders import build_trips
 from FileParsers.filereaders import verify_files, page_number_remover, create_trips_as_dict, number_of_trips_in_pbs_file
 from data.database import Database
 
-# TODO : All objects are stored and retrieved in "America/Mexico_City" timezone
 from models.scheduleClasses import Trip
 
 files = []
@@ -24,7 +23,7 @@ class Menu:
             "2": self.parse_trips_from_files,
             "3": self.figure_out_unsaved_trips,
             "4": self.search_for_trip,
-            "5": self.read_reserve_file,
+            "5": self.choose_reserve_files,
             "10": self.quit}
 
     @staticmethod
@@ -108,8 +107,14 @@ class Menu:
         trip = Trip.load_by_id(trip_id, trip_dated)
         print(trip)
 
-    def read_reserve_file(self):
-        pass
+    def choose_reserve_files(self):
+        """This option chooses the files that are to be read and turned into meaningful data
+
+                """
+        global files, data_folder
+        file_names = ["201901 - PBS reservas SOB A.txt",
+                      "201901 - PBS reservas EJE.txt"]
+        files = verify_files(data_folder, file_names)
 
     def quit(self):
         print("adiós")
