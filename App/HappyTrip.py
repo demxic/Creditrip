@@ -4,15 +4,17 @@ import sys
 # from models import creditator
 # from model.scheduleClasses import CrewMember, Trip, GroundDuty, DutyDay
 # from model.timeClasses import DateTracker
-from models.scheduleClasses import CrewMember
-from models.txtRoster import RosterReader
+from data.database import Database
+from models.scheduleClasses import CrewMember, Airport
+from models.timeClasses import DateTracker
+from models.txtRoster import RosterReader, Liner
 
 # from model.elements import DateTracker
 # from model.payment import compensation_dict, PayCheck
 # from model.scheduleClasses import Itinerary, Trip, CrewMember
 # from rosterReaders.lineCreator import Liner
 
-
+Database.initialise(database="orgutrip", user="postgres", password="0933", host="localhost")
 
 # Xico
 # rolFile = "C:\\Users\\Xico\\Google Drive\\Sobrecargo\\Roles\\2018-Roles\\201809.txt"
@@ -143,6 +145,7 @@ class Menu:
 
         # 1. Create Crew Member
         crew_member = CrewMember(**rr.crew_stats)
+        crew_member.base = Airport.load_from_db_by_iata_code(crew_member.base)
         print("Crew Member :", end=" ")
         print(crew_member)
         print("crew_stats : ", rr.crew_stats)
@@ -154,7 +157,8 @@ class Menu:
         print("\ndatetracker for ", dt)
 
         print("\nCreating a Liner")
-        liner = Liner(dt, rr.roster_days, 'actual_itinerary', rr.crew_stats['base'])
+        liner = Liner(date_tracker=dt, roster_days=rr.roster_days, crew_member=crew_member,
+                      line_type='actual_itinerary')
         liner.build_line()
         self.line = liner.line
         self.line.crew_member = crew_member
