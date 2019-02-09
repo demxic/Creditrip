@@ -21,66 +21,43 @@ def build_carrier(flight_dict):
     return carrier_code
 
 
-def build_route(name: str, origin: Airport, destination: Airport) -> Route:
-    route_key = name + origin.iata_code + destination.iata_code
-    if route_key not in Route._routes:
-        # Route has not been loaded from the DB
-        route = Route.load_from_db_by_fields(name=name,
-                                             origin=origin,
-                                             destination=destination)
-        if not route:
-            # Route must be created and stored into DB
-            route = Route(name=name, origin=origin, destination=destination)
-            route.save_to_db()
-    else:
-        route = Route._routes[route_key]
-    return route
+# def build_route(name: str, origin: Airport, destination: Airport) -> Route:
+#     route_key = name + origin.iata_code + destination.iata_code
+#     if route_key not in Route._routes:
+#         # Route has not been loaded from the DB
+#         route = Route.load_from_db_by_fields(name=name,
+#                                              origin=origin,
+#                                              destination=destination)
+#         if not route:
+#             # Route must be created and stored into DB
+#             route = Route(name=name, origin=origin, destination=destination)
+#             route.save_to_db()
+#     else:
+#         route = Route._routes[route_key]
+#     return route
 
 
 def build_flight(dt_tracker: DateTimeTracker, flight_dict: dict) -> Flight:
     # 1. Get the route
     origin = Airport.load_from_db_by_iata_code(flight_dict['origin'])
     destination = Airport.load_from_db_by_iata_code(flight_dict['destination'])
-    route = build_route(flight_dict['name'][-4:], origin, destination)
+    route = Route.load_from_db_by_fields(name=flight_dict['name'][-4:], origin=origin,
+                                         destination=destination)
 
     # 2. We need the airline code
     carrier_code = build_carrier(flight_dict)
 
-    # 3. Find the flight in the DB
-    begin = dt_tracker.build_end_dt(time_string=flight_dict['begin'],
-                                    destination_timezone=origin.timezone)
-
-    flight_list = Flight.load_from_db_by_fields(airline_iata_code=carrier_code,
-                                           scheduled_begin=begin.astimezone(utc),
-                                           route=route)
-
-    # 4. Create and store flight if not found in the DB
-    if not flight_list:
-        # 4.a Found a regular flight, create it
-        end = dt_tracker.build_end_dt(time_string=flight_dict['end'],
-                                      destination_timezone=destination.timezone)
-        itinerary = Itinerary(begin=begin.astimezone(utc), end=end.astimezone(utc))
-        itinerary.begin_timezone = begin.tzinfo
-        itinerary.end_timezone = end.tzinfo
-        equipment = Equipment(flight_dict['equipment'])
-        flight = Flight(route=route, scheduled_itinerary=itinerary,
-                        equipment=equipment, carrier=carrier_code)
-        flight.save_to_db()
-    else:
-        # TODO : This is not yet working
-        if len(flight_list) > 1:
-            print("Choose the right flight for this trip: ")
-            for index, flight in enumerate(flight_list):
-                print(index, flight.astimezone('local'))
-            flight = flight_list[input("option: ")]
-        else:
-            flight = flight_list[0]
-            flight.astimezone(timezone='local')
-            dt_tracker.dt = flight.end
-
-        # dt_tracker.astimezone(destination.timezone)
-
+    # 3. Build the flight
+    begin = dt_tracker.build_end_dt(time_string=flight_dict['begin'], destination_timezone=origin.timezone)
+    end = dt_tracker.build_end_dt(time_string=flight_dict['end'], destination_timezone=destination.timezone)
+    itinerary = Itinerary(begin=begin, end=end)
+    equipment = Equipment(flight_dict['equipment'])
+    flight = Flight(route=route, scheduled_itinerary=itinerary, equipment=equipment, carrier=carrier_code)
     flight.dh = not flight_dict['name'].isnumeric()
+
+    if not flight.is_stored():
+        flight.save_to_db()
+
     return flight
 
 
@@ -104,6 +81,8 @@ def build_trip(trip_dict: dict) -> Trip:
     """Given a trip_dict turn it into a Trip object"""
 
     try:
+        if trip_dict['number'] == '3612':
+            input()
         trip = Trip.load_trip_info(trip_number=trip_dict['number'], dated=trip_dict['dated'])
         print("Trip {} dated {} was already stored!".format(trip_dict['number'], trip_dict['dated']))
 
@@ -129,7 +108,7 @@ def build_trip(trip_dict: dict) -> Trip:
         else:
             trip.save_to_db()
             print("Trip {0.number} dated {0.dated} saved".format(trip))
-
+            #print(trip)
     return trip
 
 
